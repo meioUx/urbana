@@ -1,0 +1,140 @@
+.sector-control {
+  display: grid;
+  gap: 20px;
+}
+.sector-toolbar {
+  display: grid;
+  grid-template-columns: 160px 220px minmax(260px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.sector-toolbar label > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #65776b;
+  font-size: 10px;
+  font-weight: 650;
+}
+.sector-toolbar input,
+.sector-toolbar select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #dce4de;
+  border-radius: 5px;
+  padding: 8px 10px;
+  background: white;
+  color: #34483c;
+}
+.sector-toolbar .search {
+  min-width: 0;
+}
+.sector-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.sector-kpis article {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-height: 100px;
+  padding: 17px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+}
+.sector-kpis article > svg {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  color: #639379;
+}
+.sector-kpis span {
+  color: #76867c;
+  font-size: 11px;
+}
+.sector-kpis strong {
+  font-size: 25px;
+}
+.sector-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 18px;
+  align-items: start;
+}
+.sector-table {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.sector-table table {
+  min-width: 1500px;
+}
+.sector-table tbody tr {
+  cursor: pointer;
+}
+.sector-table td {
+  max-width: 280px;
+  white-space: normal;
+  vertical-align: top;
+}
+.sector-table td small {
+  display: block;
+  margin-top: 4px;
+  color: #87928b;
+}
+.sector-empty {
+  padding: 24px;
+  color: #75837a;
+}
+.sector-summaries {
+  display: grid;
+  gap: 14px;
+}
+.sector-summaries section {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+}
+.sector-summaries h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.sector-summaries section > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid #edf1ee;
+  font-size: 11px;
+}
+.sector-summaries section > div:last-child {
+  border-bottom: 0;
+}
+.sector-summaries b {
+  display: inline-block;
+  width: 30px;
+  color: #27674f;
+}
+@media (max-width: 1050px) {
+  .sector-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sector-layout {
+    grid-template-columns: 1fr;
+  }
+  .sector-summaries {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 650px) {
+  .sector-toolbar,
+  .sector-kpis,
+  .sector-summaries {
+    grid-template-columns: 1fr;
+  }
+  .sector-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

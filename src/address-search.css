@@ -1,0 +1,11 @@
+.address-search{padding:12px;margin:10px 0;background:#f4f8f6;border:1px solid #dce7e1;border-radius:10px;min-width:0}
+.address-search>label{display:block;font-weight:600;margin-bottom:8px}
+.address-search-controls{display:flex;gap:8px}
+.address-search-controls input{min-width:0;flex:1;width:100%;padding:10px;border:1px solid #cbd8d0;border-radius:6px}
+.address-search button{padding:10px 12px;border:1px solid #cbd8d0;border-radius:6px;background:white;color:#155d49;cursor:pointer}
+.address-search button:disabled{opacity:.6;cursor:default}
+.address-search small{display:block;margin-top:8px;color:#52675c}
+.address-search p{margin:8px 0}
+.address-search ul{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:6px}
+.address-search li button{width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere}
+@media(max-width:480px){.address-search-controls{flex-direction:column}}

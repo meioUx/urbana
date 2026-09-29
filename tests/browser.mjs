@@ -1,0 +1,117 @@
+import { chromium } from '@playwright/test';
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import express from 'express';
+import { openDatabase } from '../server/db.js';
+import { seed } from '../server/seed.js';
+import { createApp } from '../server/app.js';
+mkdirSync('test-results',{recursive:true});
+const temp=mkdtempSync(join(tmpdir(),'urbana-browser-'));
+process.env.DATA_DIR=temp;process.env.DEMO_DATA='true';process.env.ADMIN_PASSWORD='Urbana@2026';delete process.env.DATABASE_URL;
+const db=await openDatabase();await seed(db);
+const app=createApp(db);app.use(express.static(resolve('dist')));
+const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+const testUrl=`http://127.0.0.1:${server.address().port}`;
+const browser=await chromium.launch({headless:true,channel:'msedge'});
+try {
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(testUrl);
+  await page.getByLabel('E-mail',{exact:true}).fill('admin@urbana.local');
+  await page.getByLabel('Senha',{exact:true}).fill('Urbana@2026');
+  await page.getByRole('button',{name:'Entrar',exact:true}).click();
+  await page.getByRole('heading',{name:'Visão geral',exact:true}).waitFor();
+  await page.locator('.leaflet-tile-loaded').first().waitFor({timeout:45000});
+  await page.screenshot({path:'test-results/dashboard-desktop.png',fullPage:true});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  const tiles=await page.locator('.leaflet-tile-loaded').count();assert.ok(tiles>0,'Geographic tiles must render');
+  await page.getByRole('button',{name:'Nova ocorrência',exact:true}).click();
+  await page.getByRole('dialog').waitFor();await page.screenshot({path:'test-results/new-occurrence-desktop.png'});
+  const dialog=page.getByRole('dialog');
+  await dialog.getByLabel('Latitude',{exact:true}).fill('-27.123');
+  await dialog.getByLabel('Longitude',{exact:true}).fill('-48.654');
+  await dialog.getByLabel('Endereço',{exact:true}).fill('Rua de verificação, 123');
+  await dialog.getByLabel('Bairro',{exact:true}).fill('Centro');
+  await dialog.getByLabel('Descrição',{exact:true}).fill('Ocorrência de teste automatizado de interface.');
+  await dialog.getByRole('button',{name:'Registrar ocorrência',exact:true}).click();
+  await page.getByRole('heading',{name:'Rua de verificação, 123',exact:true}).waitFor();
+  await dialog.getByRole('button',{name:'Salvar triagem',exact:true}).click();
+  await dialog.getByRole('button',{name:'Gerar OS',exact:true}).waitFor();
+  await dialog.getByRole('button',{name:'Gerar OS',exact:true}).click();
+  await dialog.locator('.linked-row').filter({hasText:'OS-'}).first().waitFor();
+  await dialog.locator('.linked-row').filter({hasText:'OS-'}).first().click();
+  await dialog.getByRole('button',{name:'Execução',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Fechar',exact:true}).click();
+  for(const title of ['Mapa territorial','Ocorrências','Triagem','Ordens de serviço','Equipes','Materiais e equipamentos','Administração']) {
+    await page.locator('nav').getByRole('button',{name:title,exact:title!=='Triagem'}).click();
+    await page.getByRole('heading',{name:title,exact:true}).waitFor();
+  }
+  await page.locator('nav').getByRole('button',{name:'Ordens de serviço',exact:true}).click();
+  const orderData = await page.evaluate(async () => (await fetch('/api/ordens-servico')).json());
+  const teamId = orderData[0].team_id;
+  await page.getByLabel('Filtrar equipe',{exact:true}).selectOption(teamId);
+  assert.equal(await page.locator('tbody tr').count(),orderData.filter(o=>o.team_id===teamId).length);
+  await page.getByLabel('Filtrar equipe',{exact:true}).selectOption('');
+  for (const deadline of ['late','soon','ontime']) {
+    await page.getByLabel('Filtrar prazo',{exact:true}).selectOption(deadline);
+    const expected = orderData.filter(o=> {
+      if (['CONCLUIDA','CANCELADA'].includes(o.status)) return false;
+      const remaining=Date.parse(o.due_at)-Date.now();
+      return deadline==='late' ? remaining<0 : deadline==='soon' ? remaining>=0 && remaining<=86400000 : remaining>86400000;
+    });
+    assert.deepEqual(await page.locator('tbody tr td:first-child strong').allTextContents(),expected.map(o=>o.code));
+  }
+  await page.getByRole('button',{name:'Limpar filtros',exact:true}).click();
+  assert.equal(await page.locator('tbody tr').count(),orderData.length);
+  await page.locator('nav').getByRole('button',{name:'Visão geral',exact:true}).click();
+  await page.evaluate(async()=>{
+    for (const number of [100,200]) {
+      const result=await fetch('/api/ocorrencias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category_id:'category-1',subcategory:'Buraco',description:'Planejamento territorial de teste',origin:'Fiscalização municipal',priority:'Baixa',lat:-28,lng:-48.6,address:`Rua Planejamento UI, ${number}`,neighborhood:'Centro',duplicate_action:'new'})});
+      if(!result.ok) throw new Error('Failed to create planning fixture');
+      const o=await result.json();
+      const triage=await fetch(`/api/ocorrencias/${o.id}/classificar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category_id:'category-1',subcategory:'Buraco',priority:'Baixa',sector_id:'sector-1'})});
+      if(!triage.ok) throw new Error('Failed to triage planning fixture');
+    }
+  });
+  await page.reload();
+  await page.locator('nav').getByRole('button',{name:'Planejamento',exact:true}).click();
+  await page.getByRole('heading',{name:'Planejamento',exact:true}).waitFor();
+  await page.getByLabel('Buscar rua no planejamento').fill('Planejamento UI');
+  await page.getByRole('button',{name:'Criar plano de ação',exact:true}).click();
+  await page.getByLabel('Responsável pelo plano',{exact:true}).fill('Gestor de teste');
+  await page.getByLabel('Data planejada',{exact:true}).fill('2026-09-20');
+  await page.getByRole('button',{name:'Salvar plano de ação',exact:true}).click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Programar ordem de serviço',exact:true}).click();
+  await page.getByLabel('Equipe do plano',{exact:true}).selectOption('team-1');
+  await page.getByRole('button',{name:'Confirmar programação',exact:true}).click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  const planning = await page.evaluate(async()=> (await fetch('/api/planejamento')).json());
+  assert.equal(planning.plans[0].occurrences.length,2);
+  assert.equal(planning.plans[0].orders[0].priority,'Alta');
+  await page.screenshot({path:'test-results/planning-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.waitForTimeout(500);
+  await page.screenshot({path:'test-results/planning-mobile.png',fullPage:true});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('nav').getByRole('button',{name:'Visão geral',exact:true}).click();
+  await page.setViewportSize({width:390,height:844});
+  await page.waitForTimeout(500);
+  await page.screenshot({path:'test-results/dashboard-mobile.png',fullPage:true});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.getByRole('button',{name:'Nova ocorrência',exact:true}).click();
+  await page.screenshot({path:'test-results/new-occurrence-mobile.png'});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.getByRole('button',{name:'Fechar',exact:true}).click();
+  await page.getByRole('button',{name:'Abrir menu',exact:true}).click();
+  await page.locator('nav').getByRole('button',{name:'Ordens de serviço',exact:true}).click();
+  await page.locator('tbody tr').first().click();
+  await page.getByRole('dialog').waitFor();
+  await page.getByRole('button',{name:'Execução',exact:true}).click();
+  await page.screenshot({path:'test-results/order-mobile.png'});
+  assert.deepEqual(errors,[]);
+  console.log(JSON.stringify({desktop:'1440x1000',mobile:'390x844',mapTiles:tiles,consoleErrors:errors,screenshots:'test-results'},null,2));
+} finally {await browser.close();await new Promise(r=>server.close(r));await db.close();rmSync(temp,{recursive:true,force:true});}

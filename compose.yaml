@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DEMO_DATA: "false"
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina uma senha inicial exclusiva}
+      SECURE_COOKIE: "true"
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+    volumes:
+      - urban_data:/app/data
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      URBANA_DOMAIN: ${URBANA_DOMAIN:?Informe o dominio publico}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+volumes:
+  urban_data:
+  caddy_data:
+  caddy_config:
