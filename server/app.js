@@ -1,3 +1,7 @@
+import { createUploadGuard } from "./modules/files/upload-limit.js";
+import { createFileStorage } from "./modules/files/storage.js";
+import { listRecords } from "./modules/listing/index.js";
+import { assertExpectedVersion, updateVersioned } from "./modules/concurrency/index.js";
 import { registerField, queueOrderNotification } from "./field.js";
 import { registerSectorControl } from "./sector-control.js";
 import { registerPlanning } from "./planning.js";
@@ -7,8 +11,6 @@ import { registerInventory, inventoryBalance } from "./inventory.js";
 import express from "express";
 import multer from "multer";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
-import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
-import { resolve } from "node:path";
 import { z } from "zod";
 import {
   canAccessOrder,
@@ -63,17 +65,16 @@ const kinds = [
   "equipamentos",
 ];
 
-export function createApp(db) {
+export function createApp(db, { storage = createFileStorage(), maxConcurrentUploads = 4 } = {}) {
   const app = express();
+  const uploadGuard = createUploadGuard(maxConcurrentUploads);
   const kanban = kanbanService(db, fail);
-  const folder = resolve(process.env.DATA_DIR || "data", "uploads");
-  mkdirSync(folder, { recursive: true });
   app.disable("x-powered-by");
   app.get("/healthz", (req, res) => res.json({ ok: true }));
   app.use(express.json({ limit: "1mb" }));
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Referrer-Policy", "same-origin");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     if (req.path.startsWith("/api")) res.setHeader("Cache-Control", "no-store");
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
@@ -94,7 +95,7 @@ export function createApp(db) {
     (fn, write = false) =>
     async (req, res, next) => {
       const task = queue.then(async () => {
-        if (write) await db.exec("BEGIN");
+        if (write) { req.rollbackFiles = []; await db.exec("BEGIN"); }
         try {
           const wip = write ? await kanban.snapshot() : null;
           if (write && req.body?.kanban_expected_status) {
@@ -111,7 +112,10 @@ export function createApp(db) {
           if (write) await db.exec("COMMIT");
           if (!res.headersSent) res.json(result ?? { ok: true });
         } catch (e) {
-          if (write) await db.exec("ROLLBACK");
+          if (write) {
+            await db.exec("ROLLBACK");
+            for (const key of req.rollbackFiles) {try {await storage.delete(key);} catch(cleanupError) {console.error("Falha ao limpar arquivo após rollback.", cleanupError);}}
+          }
           throw e;
         }
       });
@@ -198,10 +202,9 @@ export function createApp(db) {
         ["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(status) && active.length
           ? active[0].status
           : status;
-      await db.run("UPDATE occurrences SET status=?,updated_at=? WHERE id=?", [
+      await updateVersioned(db, "occurrences", old, "status=?,updated_at=?", [
         resulting,
         now(),
-        id,
       ]);
       await audit(
         req,
@@ -320,43 +323,18 @@ export function createApp(db) {
       };
     }),
   );
-  const listOccurrences = async (req) => {
-    let list = (
-      await db.all("SELECT * FROM occurrences ORDER BY created_at DESC")
-    ).map(unpack);
-    for (const k of [
-      "status",
-      "priority",
-      "category_id",
-      "sector_id",
-      "neighborhood",
-    ])
-      if (req.query[k]) list = list.filter((r) => r[k] === req.query[k]);
-    if (req.query.q) {
-      const q = String(req.query.q).toLocaleLowerCase("pt-BR");
-      list = list.filter((r) =>
-        [r.code, r.address, r.description, r.neighborhood].some((v) =>
-          v?.toLocaleLowerCase("pt-BR").includes(q),
-        ),
-      );
-    }
-    if (req.query.from)
-      list = list.filter((r) => r.created_at.slice(0, 10) >= req.query.from);
-    if (req.query.to)
-      list = list.filter((r) => r.created_at.slice(0, 10) <= req.query.to);
-    return list;
-  };
+  const listOccurrences = req => listRecords(db, "occurrences", req.query, req.user);
   const planningModule = registerPlanning(app, db, { route, allow, audit, fail });
   registerField(app, db, { route, fail });
   registerSectorControl(app, db, { route, allow });
   registerInventory(app, db, { route, allow, audit, fail, now });
-  const invoiceModule = registerInvoices(app, db, { route, allow, audit, fail, accessOrder, now });
+  const invoiceModule = registerInvoices(app, db, { route, allow, audit, fail, accessOrder, now, storage, uploadGuard });
   app.get("/api/ocorrencias", route(listOccurrences));
   app.get(
     "/api/mapa/ocorrencias",
     route(async (req) => ({
       type: "FeatureCollection",
-      features: (await listOccurrences(req)).map((r) => ({
+      features: (await listRecords(db, "occurrences", req.query, req.user, {paginate:false})).map((r) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [r.lng, r.lat] },
         properties: r,
@@ -488,6 +466,7 @@ export function createApp(db) {
   );
   const classifyOccurrence = async (req, id, payload) => {
     const old = await entity("occurrences", id);
+    assertExpectedVersion(old, payload.version);
     if (!canTransition(old.status, status.EM_TRIAGEM, "occurrence"))
       fail(409, "Só é possível classificar antes da programação.");
     const data = z
@@ -502,8 +481,8 @@ export function createApp(db) {
     await catalog(data.sector_id, "setores");
     if (!cat.subcategories.includes(data.subcategory))
       fail(400, "Subcategoria inválida.");
-    await db.run(
-      "UPDATE occurrences SET category_id=?,sector_id=?,priority=?,status=?,updated_at=?,data=? WHERE id=?",
+    await updateVersioned(db, "occurrences", old,
+      "category_id=?,sector_id=?,priority=?,status=?,updated_at=?,data=?",
       [
         data.category_id,
         data.sector_id,
@@ -511,7 +490,6 @@ export function createApp(db) {
         status.EM_TRIAGEM,
         now(),
         JSON.stringify({ ...old, ...data }),
-        old.id,
       ],
     );
     await audit(
@@ -531,13 +509,14 @@ export function createApp(db) {
   app.post("/api/ocorrencias/:id/encaminhar", allow("classify"), classify);
   app.post("/api/ocorrencias/:id/recusar", allow("classify"), route(async req => {
     const old = await entity("occurrences", req.params.id);
+    assertExpectedVersion(old, req.body.version);
     if (!canTransition(old.status, status.RECUSADA, "occurrence")) fail(409, "Só é possível recusar uma demanda antes da programação.");
     const { reason } = z.object({ reason: text }).parse(req.body);
     const links = await db.all("SELECT order_id FROM order_occurrences WHERE occurrence_id=?", [old.id]);
     if (links.length) fail(409, "Esta demanda já possui ordem de serviço. Revise a ordem antes de alterar o atendimento.");
     const stamp = now();
     const data = { ...old, status: status.RECUSADA, updated_at: stamp, rejection_reason: reason, rejected_at: stamp, rejected_by: req.user.name };
-    await db.run("UPDATE occurrences SET status=?,updated_at=?,data=? WHERE id=?", [status.RECUSADA, stamp, JSON.stringify(data), old.id]);
+    await updateVersioned(db, "occurrences", old, "status=?,updated_at=?,data=?", [status.RECUSADA, stamp, JSON.stringify(data)]);
     await audit(req, "occurrence", old.id, "Demanda recusada na triagem", old, data);
 
     return entity("occurrences", old.id);
@@ -545,16 +524,16 @@ export function createApp(db) {
   app.get(
     "/api/ordens-servico",
     route(async (req) => {
-      const rows = await db.all(
-        "SELECT * FROM orders ORDER BY created_at DESC",
-      );
-      const links = await db.all("SELECT order_id,occurrence_id FROM order_occurrences");
+      const result = await listRecords(db, "orders", req.query, req.user);
+      const rows = Array.isArray(result) ? result : result.items;
+      const links = rows.length ? await db.all(`SELECT order_id,occurrence_id FROM order_occurrences WHERE order_id IN (${rows.map(()=>"?").join(",")})`, rows.map(o=>o.id)) : [];
       const byOrder = new Map();
       for (const link of links) {
         if (!byOrder.has(link.order_id)) byOrder.set(link.order_id, []);
         byOrder.get(link.order_id).push(link.occurrence_id);
       }
-      return rows.map(unpack).filter((o) => canAccessOrder(req.user, o)).map(o => ({ ...o, occurrence_ids: byOrder.get(o.id) || [] }));
+      const items = rows.map(o=>({...o,occurrence_ids:byOrder.get(o.id)||[]}));
+      return Array.isArray(result) ? items : {...result,items};
     }),
   );
   app.post(
@@ -570,7 +549,7 @@ export function createApp(db) {
           scheduled_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           responsible: text,
           notes: z.string().max(3000).default(""),
-          triage: z.object({ priority: z.enum(priorities), sector_id: text, category_id: text, subcategory: text }).optional(),
+          triage: z.object({ version: z.number().int().positive(), priority: z.enum(priorities), sector_id: text, category_id: text, subcategory: text }).optional(),
           new_plan: z.object({ objective: z.string().trim().min(5).max(3000), responsible: z.string().trim().min(1).max(200) }).optional(),
         })
         .parse(req.body);
@@ -655,7 +634,7 @@ export function createApp(db) {
       const stamp = now(),
         id = randomUUID(),
         protocol = await code("orders", "OS");
-      await db.run("INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?)", [
+      await db.run("INSERT INTO orders(id,code,sector_id,team_id,status,priority,due_at,created_at,updated_at,data) VALUES(?,?,?,?,?,?,?,?,?,?)", [
         id,
         protocol,
         first.sector_id,
@@ -714,6 +693,7 @@ export function createApp(db) {
       allow(permission),
       route(async (req) => {
         const old = await accessOrder(req, req.params.id);
+        assertExpectedVersion(old, req.body.version);
         if (!from.includes(old.status) || !canTransition(old.status, to, "order"))
           fail(409, "Ação incompatível com o status atual.");
         const data = { ...old };
@@ -793,9 +773,9 @@ export function createApp(db) {
           data.reason = z.object({ reason: text }).parse(req.body).reason;
           data.completed_at = null;
         }
-        await db.run(
-          "UPDATE orders SET status=?,updated_at=?,data=? WHERE id=?",
-          [to, stamp, JSON.stringify(data), old.id],
+        await updateVersioned(db, "orders", old,
+          "status=?,updated_at=?,data=?",
+          [to, stamp, JSON.stringify(data)],
         );
         await audit(
           req,
@@ -816,6 +796,7 @@ export function createApp(db) {
     allow("schedule"),
     route(async (req) => {
       const old = await accessOrder(req, req.params.id);
+      assertExpectedVersion(old, req.body.version);
       if (!["PROGRAMADA", "DEVOLVIDA"].includes(old.status))
         fail(
           409,
@@ -858,9 +839,9 @@ export function createApp(db) {
         reason: null,
         reopened_at: null,
       };
-      await db.run(
-        "UPDATE orders SET team_id=?,status='PROGRAMADA',updated_at=?,data=? WHERE id=?",
-        [team.id, now(), JSON.stringify(updated), old.id],
+      await updateVersioned(db, "orders", old,
+        "team_id=?,status='PROGRAMADA',updated_at=?,data=?",
+        [team.id, now(), JSON.stringify(updated)],
       );
       await audit(req, "order", old.id, "Programação atualizada", old, updated);
       if (old.status === "DEVOLVIDA") await propagate(req, old, "PROGRAMADA");
@@ -938,7 +919,7 @@ export function createApp(db) {
     }, true),
   );
   const upload = multer({
-    dest: folder,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 15 * 1024 * 1024, files: 1 },
     fileFilter: (req, file, cb) =>
       cb(
@@ -959,6 +940,7 @@ export function createApp(db) {
     app.post(
       `/api/${path}/:id/anexos`,
       allow(type === "order" ? "execute" : "create"),
+      uploadGuard,
       upload.single("file"),
       route(async (req) => {
         try {
@@ -993,7 +975,7 @@ export function createApp(db) {
                 attachment.entity_type !== type
               )
                 fail(409, "Identificador de envio já utilizado.");
-              if (req.file) unlinkSync(req.file.path);
+
               return { id: attachment.id };
             }
           }
@@ -1009,7 +991,7 @@ export function createApp(db) {
             fail(409, "Registro encerrado para anexos.");
           if (!req.file)
             fail(400, "Envie JPG, PNG, WebP, PDF ou MP4 de até 15 MB.");
-          const b = readFileSync(req.file.path),
+          const b = req.file.buffer,
             mime = req.file.mimetype;
           const valid =
             (mime === "image/jpeg" &&
@@ -1046,12 +1028,16 @@ export function createApp(db) {
           if (req.body.lat === undefined || req.body.lng === undefined)
             fail(400, "Informe a localização da evidência.");
           const id = randomUUID();
+          const filename = randomUUID();
+          const key = `uploads/${filename}`;
+          await storage.save(key, b);
+          req.rollbackFiles.push(key);
           await db.run("INSERT INTO evidence VALUES(?,?,?,?,?,?,?,?,?,?,?)", [
             id,
             type,
             o.id,
             stage,
-            req.file.filename,
+            filename,
             req.file.originalname.slice(0, 200),
             mime,
             req.user.id,
@@ -1073,7 +1059,7 @@ export function createApp(db) {
             ]);
           return { id };
         } catch (e) {
-          if (req.file) unlinkSync(req.file.path);
+
           throw e;
         }
       }, true),
@@ -1091,7 +1077,7 @@ export function createApp(db) {
         "Content-Disposition",
         `${e.mime.startsWith("image/") ? "inline" : "attachment"}; filename="anexo.${e.mime.split("/")[1]}"`,
       );
-      res.sendFile(resolve(folder, e.filename));
+      res.send(await storage.get(`uploads/${e.filename}`));
     } catch (e) {
       next(e);
     }
@@ -1241,11 +1227,7 @@ export function createApp(db) {
   app.get(
     "/api/auditoria",
     allow("admin"),
-    route(() =>
-      db.all(
-        "SELECT a.*,u.name AS user_name FROM audit_logs a JOIN users u ON u.id=a.user_id ORDER BY created_at DESC LIMIT 300",
-      ),
-    ),
+    route(req => listRecords(db, "audit_logs", req.query, req.user)),
   );
   app.get(
     "/api/dashboard",
@@ -1316,6 +1298,7 @@ export function createApp(db) {
           : status === 500
             ? "Não foi possível completar a operação."
             : err.message,
+      code: err.code,
       details: err instanceof z.ZodError ? err.flatten() : err.details,
     });
   });

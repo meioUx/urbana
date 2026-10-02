@@ -1,5 +1,5 @@
 import { navigate } from "./navigation.mjs";
-import { chromium } from '@playwright/test';
+import { chromium } from './map-browser-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -165,6 +165,7 @@ try {
   const orderData = await page.evaluate(async () => (await fetch('/api/ordens-servico')).json());
   const teamId = orderData[0].team_id;
   await page.getByLabel('Filtrar equipe',{exact:true}).selectOption(teamId);
+  await page.waitForFunction(n=>document.querySelectorAll('tbody tr').length===n,orderData.filter(o=>o.team_id===teamId).length);
   assert.equal(await page.locator('tbody tr').count(),orderData.filter(o=>o.team_id===teamId).length);
   await page.getByLabel('Filtrar equipe',{exact:true}).selectOption('');
   for (const deadline of ['late','soon','ontime']) {
@@ -174,9 +175,11 @@ try {
       const remaining=Date.parse(o.due_at)-Date.now();
       return deadline==='late' ? remaining<0 : deadline==='soon' ? remaining>=0 && remaining<=86400000 : remaining>86400000;
     });
+    await page.waitForFunction(codes=>JSON.stringify([...document.querySelectorAll('tbody tr td:first-child strong')].map(x=>x.textContent))===JSON.stringify(codes),expected.map(o=>o.code));
     assert.deepEqual(await page.locator('tbody tr td:first-child strong').allTextContents(),expected.map(o=>o.code));
   }
   await page.getByRole('button',{name:'Limpar filtros',exact:true}).click();
+  await page.waitForFunction(n=>document.querySelectorAll('tbody tr').length===n,orderData.length);
   assert.equal(await page.locator('tbody tr').count(),orderData.length);
   await navigate(page,'Visão geral');
   await page.evaluate(async()=>{
@@ -184,7 +187,7 @@ try {
       const result=await fetch('/api/ocorrencias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category_id:'category-1',subcategory:'Buraco',description:'Planejamento territorial de teste',origin:'Fiscalização municipal',priority:'Baixa',lat:-28,lng:-48.6,address:`Rua Planejamento UI, ${number}`,neighborhood:'Centro',duplicate_action:'new'})});
       if(!result.ok) throw new Error('Failed to create planning fixture');
       const o=await result.json();
-      const triage=await fetch(`/api/ocorrencias/${o.id}/classificar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category_id:'category-1',subcategory:'Buraco',priority:'Baixa',sector_id:'sector-1'})});
+      const triage=await fetch(`/api/ocorrencias/${o.id}/classificar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:o.version,category_id:'category-1',subcategory:'Buraco',priority:'Baixa',sector_id:'sector-1'})});
       if(!triage.ok) throw new Error('Failed to triage planning fixture');
     }
   });

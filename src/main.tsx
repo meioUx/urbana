@@ -1,17 +1,20 @@
-import PlanningPanel, { PlanningTeamCapacity } from "./PlanningPanel";
+import { lazyModule } from "./shared/lazyModule";
+import { colors, labels } from "./shared/workflow";
+const GeoMap = lazyModule(() => import("./modules/map/GeoMap"));
+const AuditPanel = lazyModule(() => import("./modules/administration/AuditPanel"));
+const PlanningPanel = lazyModule(() => import("./PlanningPanel"));
+const PlanningTeamCapacity = lazyModule(() => import("./PlanningPanel").then(m => ({default:m.PlanningTeamCapacity})));
 import WorkflowGuide from "./WorkflowGuide";
 import DispatchContext from "./DispatchContext";
-import TeamKanban from "./TeamKanban";
+const TeamKanban = lazyModule(() => import("./TeamKanban"));
 import SidebarNav from "./SidebarNav";
-import OperationsDashboard from "./OperationsDashboard";
-import Operator from "./Operator";
-import SectorControl from "./SectorControl";
-import InventoryPanel from "./InventoryPanel";
-import InvoicePanel from "./InvoicePanel";
+const OperationsDashboard = lazyModule(() => import("./OperationsDashboard"));
+const Operator = lazyModule(() => import("./Operator"));
+const SectorControl = lazyModule(() => import("./SectorControl"));
+const InventoryPanel = lazyModule(() => import("./InventoryPanel"));
+const InvoicePanel = lazyModule(() => import("./InvoicePanel"));
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import L from "leaflet";
-import { heatLayer } from "./heat-layer";
 import {
   Activity,
   ArrowDownToLine,
@@ -45,7 +48,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import "leaflet/dist/leaflet.css";
 import "./styles.css";
 
 type Row = { id: string; [key: string]: any };
@@ -57,30 +59,6 @@ type Boot = {
   priorities: string[];
   operators: Row[];
   kanban: { revision: number; limits: Record<string, number>; order: Record<string, string[]> };
-};
-const labels: Record<string, string> = {
-  IDENTIFICADA: "Identificada",
-  EM_TRIAGEM: "Pronta para programar",
-  PROGRAMADA: "Programada",
-  EM_DESLOCAMENTO: "Em deslocamento",
-  EM_EXECUCAO: "Em execução",
-  AGUARDANDO_VALIDACAO: "Aguardando validação",
-  DEVOLVIDA: "Devolvida à gestão",
-  CONCLUIDA: "Concluída",
-  CANCELADA: "Cancelada",
-  RECUSADA: "Recusada",
-};
-const colors: Record<string, string> = {
-  IDENTIFICADA: "#db5350",
-  EM_TRIAGEM: "#b26cbd",
-  PROGRAMADA: "#d48c28",
-  EM_DESLOCAMENTO: "#c5a224",
-  EM_EXECUCAO: "#3e86c8",
-  AGUARDANDO_VALIDACAO: "#8470b3",
-  DEVOLVIDA: "#a46a1c",
-  CONCLUIDA: "#26896b",
-  CANCELADA: "#8a9295",
-  RECUSADA: "#b45656",
 };
 const fmt = (d: string) =>
   d
@@ -121,6 +99,7 @@ async function api(path: string, method = "GET", body?: any) {
   if (!res.ok)
     throw Object.assign(new Error(data.error), {
       status: res.status,
+      code: data.code,
       details: data.details,
     });
   return data;
@@ -237,127 +216,6 @@ function Modal({
     </div>
   );
 }
-function GeoMap({
-  rows,
-  onSelect,
-  pick,
-  point,
-  large = false,
-  heatmap = false,
-}: {
-  rows: Row[];
-  onSelect?: (r: Row) => void;
-  pick?: (lat: number, lng: number) => void;
-  point?: [number, number];
-  large?: boolean;
-  heatmap?: boolean;
-}) {
-  const element = useRef<HTMLDivElement>(null),
-    map = useRef<L.Map | null>(null),
-    group = useRef<L.LayerGroup | null>(null),
-    handler = useRef(pick),
-    select = useRef(onSelect);
-  handler.current = pick;
-  select.current = onSelect;
-  const [mapError, setMapError] = useState(false);
-  const [mapMode, setMapMode] = useState("points");
-  useEffect(() => {
-    if (!map.current || mapMode !== "heat" || !heatmap) return;
-    const layer = heatLayer(rows.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng)).map(r => [r.lat, r.lng] as [number, number]));
-    layer.addTo(map.current);
-    return () => { layer.remove(); };
-  }, [rows, mapMode, heatmap]);
-  useEffect(() => {
-    if (!element.current) return;
-    const m = L.map(element.current, {
-      zoomControl: false,
-      zoomAnimation: false,
-      fadeAnimation: false,
-      markerZoomAnimation: false,
-    }).setView([-26.998, -48.638], 13);
-    map.current = m;
-    L.control.zoom({ position: "bottomright" }).addTo(m);
-    const tiles = L.tileLayer(
-      "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-      {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
-      },
-    ).addTo(m);
-    tiles.on("tileerror", () => setMapError(true));
-    tiles.on("tileload", () => setMapError(false));
-    group.current = L.layerGroup().addTo(m);
-    m.on("click", (e) => handler.current?.(e.latlng.lat, e.latlng.lng));
-    const observer = new ResizeObserver(() => m.invalidateSize());
-    observer.observe(element.current);
-    return () => {
-      observer.disconnect();
-      m.stop();
-      m.remove();
-      map.current = null;
-    };
-  }, []);
-  useEffect(() => {
-    const g = group.current;
-    if (!g) return;
-    g.clearLayers();
-    rows.forEach((r) => {
-      if (mapMode === "heat" && heatmap) return;
-      const marker = L.circleMarker([r.lat, r.lng], {
-        radius: 8,
-        color: "#fff",
-        weight: 2,
-        fillColor: colors[r.status] || "#15765d",
-        fillOpacity: 1,
-      }).addTo(g);
-      const tip = document.createElement("span");
-      tip.textContent = `${r.code} · ${r.address}`;
-      marker.bindTooltip(tip);
-      marker.on("click", () => select.current?.(r));
-    });
-    if (point) {
-      L.circleMarker(point, {
-        radius: 10,
-        color: "#fff",
-        weight: 3,
-        fillColor: "#14785f",
-        fillOpacity: 1,
-      }).addTo(g);
-      map.current?.setView(point, 16);
-    }
-  }, [rows, point?.[0], point?.[1], mapMode, heatmap]);
-  return (
-    <>
-      {heatmap && <div className="heat-controls" role="group" aria-label="Visualização do mapa"><button type="button" className="button secondary" aria-pressed={mapMode === "points"} onClick={() => setMapMode("points")}>Pontos de ocorrências</button><button type="button" className="button secondary" aria-pressed={mapMode === "heat"} onClick={() => setMapMode("heat")}>Mapa de calor</button><span>{rows.length} ocorrências nos filtros atuais</span></div>}
-    <div className={`map-wrap ${large ? "large" : ""}`}>
-      <div className="map" ref={element} />
-      {mapError && (
-        <div className="map-warning">
-          Mapa-base indisponível. Os registros continuam acessíveis.
-        </div>
-      )}
-      <button
-        className="map-home icon"
-        type="button"
-        title="Enquadrar ocorrências"
-        onClick={() => {
-          if (rows.length)
-            map.current?.fitBounds(
-              L.latLngBounds(
-                rows.map((r) => [r.lat, r.lng] as [number, number]),
-              ),
-              { padding: [35, 35], maxZoom: 15 },
-            );
-          else map.current?.setView([-26.998, -48.638], 13);
-        }}
-      >
-        <LocateFixed size={18} />
-      </button>
-    </div>
-    {heatmap && mapMode === "heat" && <div className="heat-legend" role="status"><span className="heat-ramp"/><span>Menor → maior concentração de ocorrências</span><small>Cada ocorrência tem o mesmo peso. A concentração varia com o zoom e respeita os filtros. Selecione um registro na lista ou volte aos pontos para abrir o detalhe.</small></div>}
-    </>
-  );
-}
 function App() {
   const [boot, setBoot] = useState<Boot | null>(null),
     [loading, setLoading] = useState(true),
@@ -388,6 +246,26 @@ function App() {
     [syncError, setSyncError] = useState(""),
     [lastSync, setLastSync] = useState<string>(""),
     [syncing, setSyncing] = useState(false);
+  const pagedScope = ["occurrences", "triagem", "orders"].includes(page);
+  const [listPage, setListPage] = useState<any>({items:[],has_more:false,next_cursor:null});
+  const [listCursor, setListCursor] = useState("");
+  const [listBack, setListBack] = useState<string[]>([]);
+  const [listBusy, setListBusy] = useState(false);
+  const [listError, setListError] = useState("");
+  const listKey = JSON.stringify([page,q,status,priority,category,team,deadline,from,to,neighborhood]);
+  useEffect(() => {setListCursor("");setListBack([]);},[listKey]);
+  useEffect(() => {
+    if (!boot || !pagedScope) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setListBusy(true);setListError("");
+      const params = new URLSearchParams({limit:"50"});
+      for (const [key,value] of Object.entries({q,status:status || (page === "triagem" ? "IDENTIFICADA,EM_TRIAGEM" : ""),priority,category_id:page === "orders" ? "" : category,team_id:page === "orders" ? team : "",deadline:page === "orders" ? deadline : "",from,to,neighborhood,cursor:listCursor})) if(value) params.set(key,value);
+      try {const result = await api(`/${page === "orders" ? "ordens-servico" : "ocorrencias"}?${params}`);if(!cancelled)setListPage({...result,key:listKey});} catch(e:any) {if(!cancelled)setListError(e.message);} finally {if(!cancelled)setListBusy(false);}
+    },200);
+    return () => {cancelled=true;window.clearTimeout(timer);};
+  },[boot?.user.id,pagedScope,listKey,listCursor,lastSync]);
+  const pageControls = <div className="form-actions" aria-label="Paginação"><button className="button secondary" disabled={listBusy || !listBack.length} onClick={() => {setListCursor(listBack.at(-1) || "");setListBack(listBack.slice(0,-1));}}>Anterior</button><span role="status">Página {listBack.length+1} · {listBusy ? "Atualizando..." : listPage.items.length+" registros"}</span><button className="button secondary" disabled={listBusy || !listPage.has_more} onClick={() => {setListBack([...listBack,listCursor]);setListCursor(listPage.next_cursor);}}>Próxima</button></div>;
   const refresh = async () => {
     const b = await api("/bootstrap");
     if (b.user.role === "Equipe de Campo") {
@@ -406,12 +284,7 @@ function App() {
     setDashboard(d);
     setPlanning(p);
     if (b.user.role === "Administrador") {
-      const [u, a] = await Promise.all([
-        api("/users"),
-        api("/auditoria"),
-      ]);
-      setUsers(u);
-      setAudit(a);
+      setUsers(await api("/users"));
     }
     setLastSync(new Date().toISOString());
     setSyncError("");
@@ -506,7 +379,7 @@ function App() {
     setMobile(false);
     setDetail(null);
   };
-  const filtered = rows.filter(
+  const filtered: Row[] = pagedScope && page !== "orders" ? (listPage.key === listKey ? listPage.items : []) : rows.filter(
     (r) =>
       (!q ||
         [r.code, r.address, r.neighborhood, r.description].some((x) =>
@@ -520,7 +393,7 @@ function App() {
       (!to || r.created_at.slice(0, 10) <= to) &&
       (page !== "triagem" || ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)),
   );
-  const filteredOrders = orders.filter(
+  const filteredOrders: Row[] = page === "orders" ? (listPage.key === listKey ? listPage.items : []) : orders.filter(
     (r) =>
       (!q ||
         [r.code, name(r.team_id), r.responsible].some((x) =>
@@ -944,7 +817,7 @@ function App() {
               {["occurrences", "orders", "map"].includes(page) && (
                 <button className="button secondary" onClick={exportCsv}>
                   <ArrowDownToLine size={16} />
-                  Exportar
+                  {pagedScope ? "Exportar página" : "Exportar"}
                 </button>
               )}
               {can("create") &&
@@ -994,7 +867,9 @@ function App() {
             <>
               {page === "triagem" && <section className="demand-queue" aria-label="Filas de triagem"><p>Analise a demanda e depois escolha quando atender. Planejamento é opcional para comparar obras e agrupar demandas da mesma via.</p><div className="form-actions">{[["IDENTIFICADA", "A analisar"], ["EM_TRIAGEM", "Prontas para programar"], ["", "Todas da triagem"]].map(([value, title]) => <button key={value} type="button" className={`button ${status === value ? "primary" : "secondary"}`} aria-pressed={status === value} onClick={() => setStatus(value)}>{title} ({rows.filter(r => value ? r.status === value : ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)).length})</button>)}</div></section>}
               {filters}
-              <div className="results-count">{filtered.length} ocorrências</div>
+              <div className="results-count">{filtered.length} ocorrências nesta página</div>
+              {pageControls}
+              {listError && <p role="alert">{listError}</p>}
               {occurrenceTable(filtered)}
             </>
           )}
@@ -1107,8 +982,10 @@ function App() {
             <>
               {filters}
               <div className="results-count">
-                {filteredOrders.length} ordens de serviço
+                {filteredOrders.length} ordens de serviço nesta página
               </div>
+              {pageControls}
+              {listError && <p role="alert">{listError}</p>}
               <div className="table-scroll">
                 <table>
                   <thead>
@@ -1464,32 +1341,7 @@ function App() {
                   save={(data) => run(() => api("/settings", "PATCH", data))}
                 />
               )}{" "}
-              {adminTab === "audit" && (
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Data</th>
-                        <th>Usuário</th>
-                        <th>Evento</th>
-                        <th>Registro</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {audit.map((a) => (
-                        <tr key={a.id}>
-                          <td>{fmt(a.created_at)}</td>
-                          <td>{a.user_name}</td>
-                          <td>{a.event}</td>
-                          <td>
-                            <small>{a.entity_id}</small>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              {adminTab === "audit" && <AuditPanel api={api} />}
             </>
           )}
           <footer className="page-footer">
@@ -2241,6 +2093,7 @@ function Detail({
     [material, setMaterial] = useState(""),
     [quantity, setQuantity] = useState(1),
     [equipment, setEquipment] = useState("");
+  const [conflict, setConflict] = useState(false);
   const [triageDecision, setTriageDecision] = useState(""), [rejectionReason, setRejectionReason] = useState("");
   const cats = boot.catalogs.filter((c) => c.kind === "categorias"),
     sectors = boot.catalogs.filter((c) => c.kind === "setores");
@@ -2277,16 +2130,18 @@ function Detail({
     setSuccess("");
     try {
       await fn();
+      setConflict(false);
       setSuccess(message);
       try { await onChange(); } catch { setError("A operação foi registrada, mas não foi possível atualizar o detalhe. Feche e abra o registro antes de continuar."); }
     } catch (e: any) {
+      setConflict(e.code === "VERSION_CONFLICT");
       setError(e.message);
     } finally {
       setBusy(false);
     }
   };
   const action = (a: string, body: any = {}) =>
-    execute(() => api(`${base}/${a}`, "POST", body), ({ classificar: "Triagem salva. A gestão já pode programar a ordem de serviço.", assumir: "Deslocamento registrado. Confira a chegada e as evidências antes de iniciar.", iniciar: "Execução iniciada. Registre os materiais e as fotos do serviço.", material: "Consumo de material registrado.", equipamento: "Equipamento vinculado ao serviço.", concluir: "Serviço enviado para validação. A conclusão depende da análise da gestão ou fiscalização.", validar: "Serviço validado e concluído. O resultado foi registrado no histórico.", reabrir: "Execução reaberta para correção. A justificativa foi registrada.", cancelar: "Ordem cancelada. A justificativa foi registrada no histórico." } as Record<string, string>)[a]);
+    execute(() => api(`${base}/${a}`, "POST", { ...body, version: v.version }), ({ classificar: "Triagem salva. A gestão já pode programar a ordem de serviço.", assumir: "Deslocamento registrado. Confira a chegada e as evidências antes de iniciar.", iniciar: "Execução iniciada. Registre os materiais e as fotos do serviço.", material: "Consumo de material registrado.", equipamento: "Equipamento vinculado ao serviço.", concluir: "Serviço enviado para validação. A conclusão depende da análise da gestão ou fiscalização.", validar: "Serviço validado e concluído. O resultado foi registrado no histórico.", reabrir: "Execução reaberta para correção. A justificativa foi registrada.", cancelar: "Ordem cancelada. A justificativa foi registrada no histórico." } as Record<string, string>)[a]);
   const editable = !["CONCLUIDA", "CANCELADA", "RECUSADA", "AGUARDANDO_VALIDACAO"].includes(
     v.status,
   );
@@ -2305,6 +2160,7 @@ function Detail({
         </p>
         {v.demo && <small className="demo-label">Registro demonstrativo</small>}
       </div>
+      <>{conflict && <div className="notice" role="alert"><p>Este registro foi alterado por outra pessoa enquanto você trabalhava nele. Atualize os dados antes de continuar. Seus campos locais foram preservados.</p><button type="button" className="button secondary" disabled={busy} onClick={async () => { setBusy(true); try { await onChange(); setConflict(false); setError(""); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>Atualizar dados</button></div>}</>
       <WorkflowGuide value={v} catalogs={boot.catalogs} onEvidence={() => setTab("evidence")} />
       {success && <p className="notice" role="status">{success}</p>}
       <div className="tabs">
@@ -2498,7 +2354,7 @@ function Detail({
                     </div>
                   </form>
                 )}
-              {can("classify") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "reject" && <form className="assignment-form" onSubmit={e => { e.preventDefault(); execute(async () => { await api(`/ocorrencias/${v.id}/recusar`, "POST", { reason: rejectionReason }); setTriageDecision(""); }, "Demanda recusada. A justificativa foi registrada no histórico."); }}><h3>Justificativa de recusa</h3><Field label="Justificativa de recusa"><textarea autoFocus required maxLength={2000} rows={4} value={rejectionReason} onChange={e=>setRejectionReason(e.target.value)} placeholder="Informe o motivo da recusa desta demanda."/></Field><div className="form-actions"><button type="button" className="button secondary" disabled={busy} onClick={()=>setTriageDecision("")}>Voltar</button><button className="button primary" disabled={busy || !rejectionReason.trim()}>{busy ? "Enviando..." : "Enviar"}</button></div></form>}
+              {can("classify") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "reject" && <form className="assignment-form" onSubmit={e => { e.preventDefault(); execute(async () => { await api(`/ocorrencias/${v.id}/recusar`, "POST", { reason: rejectionReason, version: v.version }); setTriageDecision(""); }, "Demanda recusada. A justificativa foi registrada no histórico."); }}><h3>Justificativa de recusa</h3><Field label="Justificativa de recusa"><textarea autoFocus required maxLength={2000} rows={4} value={rejectionReason} onChange={e=>setRejectionReason(e.target.value)} placeholder="Informe o motivo da recusa desta demanda."/></Field><div className="form-actions"><button type="button" className="button secondary" disabled={busy} onClick={()=>setTriageDecision("")}>Voltar</button><button className="button primary" disabled={busy || !rejectionReason.trim()}>{busy ? "Enviando..." : "Enviar"}</button></div></form>}
               {can("schedule") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "program" && (
                 <form
                   onSubmit={(e) => {
@@ -2507,7 +2363,7 @@ function Detail({
                       await api("/ordens-servico", "POST", {
                         ...schedule,
                         occurrence_ids: [v.id],
-                        triage,
+                        triage: { ...triage, version: v.version },
                       });
                       setTriageDecision("");
                       setTab("overview");
@@ -2807,7 +2663,7 @@ function Detail({
             order={v}
             boot={boot}
             onSave={(data: any) =>
-              execute(() => api(`${base}/programacao`, "POST", data))
+              execute(() => api(`${base}/programacao`, "POST", { ...data, version: v.version }))
             }
             busy={busy}
           />

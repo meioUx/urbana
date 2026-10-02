@@ -12,7 +12,11 @@ export default function InventoryPanel({ api, catalogs }: { api: (path: string, 
   const [busy, setBusy] = useState(false);
   const [success, setSuccess] = useState("");
   const [movement, setMovement] = useState({ material_id: "", type: "entrada", quantity: 1, unit_cost: 0, notes: "" });
-  const load = async () => { const result = await api("/almoxarifado"); setData(result); setError(""); };
+  const [movementCursor,setMovementCursor] = useState("");
+  const [movementBack,setMovementBack] = useState<string[]>([]);
+  const [movementPage,setMovementPage] = useState<any>({has_more:false});
+  const loadMovements = async (cursor="") => {const result=await api("/almoxarifado/movimentos?limit=50"+(cursor?"&cursor="+encodeURIComponent(cursor):""));setMovementPage(result);setData((old:any)=>old?{...old,movements:result.items}:old);};
+  const load = async () => { const [result,page] = await Promise.all([api("/almoxarifado"),api("/almoxarifado/movimentos?limit=50")]); setData({...result,movements:page.items});setMovementPage(page);setMovementCursor("");setMovementBack([]);setError(""); };
   useEffect(() => { load().catch((e) => setError(e.message)); }, []);
   const materials = data?.materials || [];
   const totalValue = materials.reduce((sum: number, item: any) => sum + item.stock_value, 0);
@@ -40,6 +44,7 @@ export default function InventoryPanel({ api, catalogs }: { api: (path: string, 
         <label className="wide">Motivo<input required value={movement.notes} onChange={(e) => setMovement({ ...movement, notes: e.target.value })} placeholder="Ex.: inventário inicial ou correção de contagem"/></label>
       </div><button className="button primary" disabled={busy}>{movement.type === "entrada" ? <ArrowDownToLine size={17}/> : <ArrowUpFromLine size={17}/>} {busy ? "Salvando..." : "Registrar movimento"}</button>
     </form>
+    <section aria-label="Histórico de movimentos"><div className="section-heading recent"><h2>Movimentos de estoque</h2></div><div className="form-actions"><button className="button secondary" disabled={busy||!movementBack.length} onClick={async()=>{setBusy(true);try{const cursor=movementBack.at(-1)||"";await loadMovements(cursor);setMovementCursor(cursor);setMovementBack(movementBack.slice(0,-1));}catch(e:any){setError(e.message);}finally{setBusy(false);}}}>Anterior</button><span role="status">Página {movementBack.length+1}</span><button className="button secondary" disabled={busy||!movementPage.has_more} onClick={async()=>{setBusy(true);try{await loadMovements(movementPage.next_cursor);setMovementBack([...movementBack,movementCursor]);setMovementCursor(movementPage.next_cursor);}catch(e:any){setError(e.message);}finally{setBusy(false);}}}>Próxima</button></div><div className="table-scroll"><table><thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Quantidade</th><th>Usuário / motivo</th></tr></thead><tbody>{data.movements.map((row:any)=><tr key={row.id}><td>{new Date(row.created_at).toLocaleString("pt-BR")}</td><td>{materials.find((m:any)=>m.id===row.material_id)?.name||row.material_id}</td><td>{row.type==="entrada"?"Entrada":"Saída"}</td><td>{quantity(row.quantity)}</td><td>{row.user_name} · {row.notes}</td></tr>)}</tbody></table></div>{!data.movements.length&&<p>Nenhum movimento registrado.</p>}</section>
     <div className="section-heading recent"><h2>Notas fiscais recentes</h2></div>
     <div className="inventory-feed">{data.invoices.map((invoice: any) => <a key={invoice.id} href={`/api/notas-fiscais/${invoice.id}/arquivo`} target="_blank" rel="noreferrer"><FileText size={20}/><span><strong>NF {invoice.invoice_number || "em conferência"} · {invoice.supplier || invoice.original_name}</strong><small>{invoice.order_code} · {invoice.status} · {money(invoice.total_value)}</small></span></a>)}</div>
   </div>;

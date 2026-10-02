@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test";
+import { chromium } from "./map-browser-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

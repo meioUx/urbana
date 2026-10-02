@@ -1,7 +1,5 @@
 import multer from "multer";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
-import { resolve } from "node:path";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { z } from "zod";
 
@@ -61,8 +59,10 @@ export function parseInvoiceText(text) {
   };
 }
 
-async function extractPdf(path) {
-  const pdf = await getDocument({ data: new Uint8Array(readFileSync(path)), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true }).promise;
+async function extractPdf(bytes) {
+  const task = getDocument({ data: new Uint8Array(bytes), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true });
+  try {
+  const pdf = await task.promise;
   const pages = [];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     const content = await (await pdf.getPage(pageNumber)).getTextContent();
@@ -75,8 +75,8 @@ async function extractPdf(path) {
     }
     pages.push([...rows.entries()].sort((a, b) => b[0] - a[0]).map(([, cells]) => cells.sort((a, b) => a.x - b.x).map((cell) => cell.value).join(" ")).join("\n"));
   }
-  await pdf.destroy();
   return pages.join("\n");
+  } finally { await task.destroy(); }
 }
 
 const itemSchema = z.object({
@@ -91,26 +91,28 @@ const itemSchema = z.object({
 });
 
 export function registerInvoices(app, db, helpers) {
-  const { route, allow, audit, fail, accessOrder, now } = helpers;
-  const folder = resolve(process.env.DATA_DIR || "data", "invoices");
-  mkdirSync(folder, { recursive: true });
+  const { route, allow, audit, fail, accessOrder, now, storage, uploadGuard } = helpers;
   const upload = multer({
-    storage: multer.diskStorage({ destination: folder, filename: (_req, _file, callback) => callback(null, `${randomUUID()}.pdf`) }),
+    storage: multer.memoryStorage(),
     limits: { fileSize: 15 * 1024 * 1024, files: 1 },
     fileFilter: (_req, file, callback) => callback(null, file.mimetype === "application/pdf"),
   });
   const hydrate = async (invoice) => invoice ? ({ ...invoice, ...JSON.parse(invoice.data || "{}"), data: undefined, items: await db.all("SELECT * FROM invoice_items WHERE invoice_id=? ORDER BY position", [invoice.id]) }) : null;
 
-  app.post("/api/ordens-servico/:id/notas-fiscais/extrair", allow("schedule"), upload.single("file"), route(async (req) => {
+  app.post("/api/ordens-servico/:id/notas-fiscais/extrair", allow("schedule"), uploadGuard, upload.single("file"), route(async (req) => {
     if (!req.file) fail(400, "Selecione uma nota fiscal em PDF.");
     const order = await accessOrder(req, req.params.id);
-    if (readFileSync(req.file.path).subarray(0, 5).toString() !== "%PDF-") { unlinkSync(req.file.path); fail(400, "O arquivo enviado não é um PDF válido."); }
+    if (req.file.buffer.subarray(0, 5).toString() !== "%PDF-") { fail(400, "O arquivo enviado não é um PDF válido."); }
     let rawText;
-    try { rawText = await extractPdf(req.file.path); }
-    catch { unlinkSync(req.file.path); fail(400, "Não foi possível ler este PDF. Verifique se ele não está protegido ou corrompido."); }
+    try { rawText = await extractPdf(req.file.buffer); }
+    catch { fail(400, "Não foi possível ler este PDF. Verifique se ele não está protegido ou corrompido."); }
     const parsed = parseInvoiceText(rawText);
     const id = randomUUID();
-    await db.run("INSERT INTO invoices(id,order_id,status,supplier,invoice_number,issue_date,total_value,filename,original_name,user_id,created_at,data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", [id, order.id, "RASCUNHO", parsed.supplier, parsed.invoice_number, null, parsed.total_value, req.file.filename, req.file.originalname, req.user.id, now(), JSON.stringify({ extraction_status: parsed.extraction_status, raw_text: rawText.slice(0, 200000) })]);
+    const filename = `${randomUUID()}.pdf`;
+    const key = `invoices/${filename}`;
+    await storage.save(key, req.file.buffer);
+    req.rollbackFiles.push(key);
+    await db.run("INSERT INTO invoices(id,order_id,status,supplier,invoice_number,issue_date,total_value,filename,original_name,user_id,created_at,data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", [id, order.id, "RASCUNHO", parsed.supplier, parsed.invoice_number, null, parsed.total_value, filename, req.file.originalname, req.user.id, now(), JSON.stringify({ extraction_status: parsed.extraction_status, raw_text: rawText.slice(0, 200000) })]);
     for (const [position, item] of parsed.items.entries()) await db.run("INSERT INTO invoice_items(id,invoice_id,material_id,stage,description,purchased_quantity,used_quantity,unit,unit_value,product_total,position) VALUES(?,?,?,?,?,?,?,?,?,?,?)", [randomUUID(), id, null, item.stage, item.description, item.purchased_quantity, item.used_quantity, item.unit, item.unit_value, item.product_total, position]);
     await audit(req, "invoice", id, "Nota fiscal enviada para conferência", null, { order_id: order.id, original_name: req.file.originalname, extraction_status: parsed.extraction_status });
     return hydrate(await db.get("SELECT * FROM invoices WHERE id=?", [id]));
@@ -144,7 +146,7 @@ export function registerInvoices(app, db, helpers) {
     await accessOrder(req, invoice.order_id);
     res.type("application/pdf");
     res.setHeader("Content-Disposition", `inline; filename=\"${String(invoice.original_name).replace(/[\"\r\n]/g, "")}\"`);
-    res.sendFile(resolve(folder, invoice.filename));
+    res.send(await storage.get(`invoices/${invoice.filename}`));
   }));
   return { hydrateInvoice: hydrate };
 }

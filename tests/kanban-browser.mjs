@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test";
+import { chromium } from "./map-browser-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -240,6 +240,7 @@ try {
     .getByRole("heading", { name: "Visão geral", exact: true })
     .waitFor();
   await navigate(page, "Kanban de equipes");
+  await column("IDENTIFICADA").waitFor();
   const ordered = await column("IDENTIFICADA")
     .locator(".kanban-card")
     .evaluateAll((items) => items.map((el) => el.dataset.cardKey));

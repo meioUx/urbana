@@ -818,6 +818,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
   const load = async () => {
     try {
       setOrder(await api(`/ordens-servico/${id}`));
+      setError("");
     } catch (e: any) {
       setError(e.message);
     }
@@ -838,7 +839,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
     setError("");
     setSuccess("");
     try {
-      await api(`/ordens-servico/${id}/${name}`, "POST", body);
+      await api(`/ordens-servico/${id}/${name}`, "POST", { ...body, version: order.version });
       setSuccess(({ assumir: "Deslocamento registrado.", iniciar: "Execução iniciada. Registre o resultado do serviço.", concluir: "Resultado enviado para análise. Aguarde a validação da gestão.", devolver: "Ordem devolvida à gestão com a justificativa informada.", material: "Material utilizado registrado.", equipamento: "Equipamento vinculado." } as Record<string, string>)[name] || "Operação registrada.");
       await load();
       try { await onChange(); } catch { setError("A operação foi registrada, mas a lista não foi atualizada. Volte às tarefas e confira antes de repetir."); }
@@ -895,6 +896,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
           {error}
         </div>
       )}
+      {error === "Registro alterado por outro usuário." && <div className="operator-message" role="alert"><p>Atualize os dados antes de continuar. Seu relato local foi preservado.</p><button type="button" className="button secondary" onClick={async () => { await load(); }}>Atualizar dados</button></div>}
       {success && <div className="operator-message" role="status">{success}</div>}
       {order.status === "AGUARDANDO_VALIDACAO" && (
         <div className="operator-message">

@@ -29,7 +29,11 @@ export const orderStatuses = Object.freeze([
 
 export const statuses = Object.freeze([...occurrenceStatuses, ...orderStatuses]);
 
-export const occurrenceTransitions = Object.freeze({
+const freezeTransitions = (table) => Object.freeze(Object.fromEntries(
+  Object.entries(table).map(([state, destinations]) => [state, Object.freeze(destinations)]),
+));
+
+export const occurrenceTransitions = freezeTransitions({
   [workflowStatus.IDENTIFICADA]: [
     workflowStatus.EM_TRIAGEM,
     workflowStatus.RECUSADA,
@@ -41,7 +45,7 @@ export const occurrenceTransitions = Object.freeze({
   [workflowStatus.RECUSADA]: [],
 });
 
-export const orderTransitions = Object.freeze({
+export const orderTransitions = freezeTransitions({
   [workflowStatus.PROGRAMADA]: [
     workflowStatus.EM_DESLOCAMENTO,
     workflowStatus.EM_EXECUCAO,

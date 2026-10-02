@@ -34,3 +34,28 @@ test("invalid canonical transition fails with structured error", () => {
     (error) => error.code === "INVALID_TRANSITION" && error.entityType === "occurrence",
   );
 });
+
+
+test("transition tables cannot be changed by consumers", async () => {
+  const { occurrenceTransitions, orderTransitions } = await import("../server/domain/workflow.js");
+  assert.throws(() => orderTransitions.PROGRAMADA.push(status.CONCLUIDA), TypeError);
+  assert.throws(() => occurrenceTransitions.RECUSADA.push(status.EM_TRIAGEM), TypeError);
+  const copy = getAllowedTransitions(status.PROGRAMADA);
+  copy.push(status.CONCLUIDA);
+  assert.equal(canTransition(status.PROGRAMADA, status.CONCLUIDA), false);
+});
+
+test("all canonical transitions are covered and terminal states stay closed", () => {
+  const expected = {
+    PROGRAMADA: ["EM_DESLOCAMENTO", "EM_EXECUCAO", "DEVOLVIDA", "CANCELADA"],
+    EM_DESLOCAMENTO: ["EM_EXECUCAO", "DEVOLVIDA", "CANCELADA"],
+    EM_EXECUCAO: ["AGUARDANDO_VALIDACAO", "DEVOLVIDA", "CANCELADA"],
+    AGUARDANDO_VALIDACAO: ["CONCLUIDA", "EM_EXECUCAO"],
+    DEVOLVIDA: ["PROGRAMADA"], CONCLUIDA: ["EM_EXECUCAO"], CANCELADA: [],
+  };
+  for (const from of orderStatuses) for (const to of Object.values(status)) {
+    assert.equal(canTransition(from, to), expected[from].includes(to), from + " ? " + to);
+  }
+  assert.deepEqual(getAllowedTransitions("UNKNOWN"), []);
+  assert.throws(() => getAllowedTransitions(status.PROGRAMADA, "project"), TypeError);
+});

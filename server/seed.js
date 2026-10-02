@@ -343,7 +343,7 @@ export async function seed(db) {
       ].includes(states[i])
     ) {
       const oid = randomUUID();
-      await db.run("INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?)", [
+      await db.run("INSERT INTO orders(id,code,sector_id,team_id,status,priority,due_at,created_at,updated_at,data) VALUES(?,?,?,?,?,?,?,?,?,?)", [
         oid,
         `OS-2026-${String(i + 1).padStart(5, "0")}`,
         "sector-1",

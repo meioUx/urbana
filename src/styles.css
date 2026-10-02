@@ -473,7 +473,7 @@ strong {
   z-index: 2;
 }
 .leaflet-control-attribution {
-  font-size: 8px !important;
+  font-size: 11px !important;
 }
 .leaflet-control-zoom a {
   color: #5b6d60 !important;

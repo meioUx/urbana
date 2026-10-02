@@ -6,6 +6,9 @@ COPY index.html tsconfig.json vite.config.js ./
 COPY src ./src
 COPY shared ./shared
 COPY public ./public
+ARG VITE_MAP_TILE_URL
+ARG VITE_MAP_ATTRIBUTION
+ARG VITE_MAP_MAX_ZOOM=19
 RUN npm run build
 
 FROM node:24-bookworm-slim

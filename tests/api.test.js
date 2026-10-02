@@ -12,7 +12,7 @@ let db,server,base,admin,reader,field;
 const temp=mkdtempSync(join(tmpdir(),'urbana-test-'));
 process.env.DATA_DIR=temp;process.env.DEMO_DATA='false';process.env.ADMIN_PASSWORD='Testing@2026';
 delete process.env.DATABASE_URL;
-const json=async(path,method='GET',body,cookie=admin)=>{const r=await fetch(base+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};};
+const json=async(path,method='GET',body,cookie=admin)=>{if(method!=='GET' && body){const m=path.match(/^\/(ocorrencias|ordens-servico)\/([^/]+)(?:\/([^/]+))?$/);if(m && !['material','equipamento','anexos'].includes(m[3]) && body.version===undefined){const current=await json('/'+m[1]+'/'+m[2],'GET',undefined,cookie);body={...body,version:current.data.version};}if(body.triage && body.triage.version===undefined){const current=await json('/ocorrencias/'+body.occurrence_ids[0],'GET',undefined,cookie);body={...body,triage:{...body.triage,version:current.data.version}};}}const r=await fetch(base+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};};
 const draft=(lat=-27.1)=>({category_id:'category-1',subcategory:'Buraco',description:'Falha no pavimento',origin:'Fiscalização municipal',priority:'Alta',lat,lng:-48.6,address:'Rua de teste, 100',neighborhood:'Centro'});
 const photo=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV6kAAAAASUVORK5CYII=','base64');
 async function attach(path,stage,content=photo,mime='image/png') {const f=new FormData();f.append('file',new Blob([content],{type:mime}),'photo.png');f.append('stage',stage);f.append('lat','-27.1');f.append('lng','-48.6');const r=await fetch(base+path+'/anexos',{method:'POST',headers:{cookie:admin},body:f});return {status:r.status,data:await r.json()};}
@@ -335,4 +335,82 @@ test('single-demand plans and atomic planning plus dispatch preserve reservation
   await db.run("UPDATE occurrences SET status='EM_TRIAGEM' WHERE id=?",[ready.id]);
   assert.equal((await json('/planos-acao','POST',{occurrence_ids:[ready.id],objective:'Novo plano indevido',responsible:'Coordenação',scheduled_at:'2026-10-03'})).status,409);
   await db.run("UPDATE occurrences SET status='PROGRAMADA' WHERE id=?",[ready.id]);
+});
+
+
+test('version conflicts reject stale edits, require a read version and roll back audit', async()=>{
+  const created=await json('/ocorrencias','POST',draft(-38.01));
+  assert.equal(created.data.version,1);
+  const path='/ocorrencias/'+created.data.id;
+  const triage={category_id:'category-1',subcategory:'Buraco',sector_id:'sector-1',priority:'Alta',version:1};
+  const [first,second]=await Promise.all([json(path+'/classificar','POST',triage),json(path+'/classificar','POST',{...triage,priority:'Baixa'})]);
+  assert.deepEqual([first.status,second.status].sort(),[200,409]);
+  const conflict=[first,second].find(r=>r.status===409);
+  assert.equal(conflict.data.code,'VERSION_CONFLICT');
+  assert.equal(conflict.data.details.current_version,2);
+  const current=(await json(path)).data;
+  assert.equal(current.version,2);
+  assert.equal(current.history.filter(h=>h.event==='Triagem e encaminhamento registrados').length,1);
+  const missing=await fetch(base+path+'/classificar',{method:'POST',headers:{cookie:admin,'Content-Type':'application/json'},body:JSON.stringify({...triage,version:undefined})});
+  assert.equal(missing.status,428);
+  assert.equal((await missing.json()).code,'VERSION_REQUIRED');
+  assert.equal((await json(path+'/classificar','POST',{...triage,version:'2'})).status,400);
+  const scheduled=await schedule(created.data);
+  assert.equal(scheduled.status,200);
+  assert.equal(scheduled.data.version,1);
+  assert.equal((await json(path)).data.version,3);
+  const orderPath='/ordens-servico/'+scheduled.data.id;
+  const taken=await json(orderPath+'/assumir','POST',{version:1});
+  assert.equal(taken.status,200);assert.equal(taken.data.version,2);
+  const stale=await json(orderPath+'/cancelar','POST',{version:1,reason:'Tela antiga'});
+  assert.equal(stale.status,409);assert.equal(stale.data.code,'VERSION_CONFLICT');
+  const order=(await json(orderPath)).data;
+  assert.equal(order.status,'EM_DESLOCAMENTO');
+  assert.equal(order.version,2);
+  assert.ok(!order.history.some(h=>h.event.startsWith('cancelar:')));
+});
+
+
+test('SQL listing uses stable cursor pages, validates filters and preserves field authorization',async()=>{
+  const ids=[];
+  for(let i=0;i<5;i++){const c=await json('/ocorrencias','POST',{...draft(-39-i*0.01),address:'Rua Paginação SQL, '+i,description:'Descrição ÁRVORE SQL',duplicate_action:'new'});assert.equal(c.status,200);ids.push(c.data.id);}
+  const path='/ocorrencias?limit=2&q='+encodeURIComponent('árvore sql');
+  const seen=[];let cursor='';let pages=0;
+  do {const r=await json(path+(cursor?'&cursor='+encodeURIComponent(cursor):''));assert.equal(r.status,200);assert.ok(r.data.items.length<=2);seen.push(...r.data.items.map(x=>x.id));cursor=r.data.next_cursor;pages++;assert.ok(pages<=4);} while(cursor);
+  assert.equal(seen.length,5);assert.equal(new Set(seen).size,5);assert.deepEqual(new Set(seen),new Set(ids));
+  const first=(await json(path)).data;
+  assert.equal((await json('/ocorrencias?limit=2&q=outro&cursor='+encodeURIComponent(first.next_cursor))).status,400);
+  for(const query of ['limit=0','limit=201','limit=1.5','cursor=invalid','from=2026-02-30','from=2026-10-02&to=2026-01-01','bbox=1,2,3','bbox=1,2,0,4']) assert.equal((await json('/ocorrencias?'+query)).status,400,query);
+  assert.equal((await json('/ocorrencias?limit=2&q='+encodeURIComponent('ÁRVORE SQL'))).data.items.length,2);
+  assert.equal((await json('/ocorrencias?limit=2&q=%')).data.items.length,0);
+  const map=(await json('/mapa/ocorrencias?bbox=-49,-39.01,-48,-38.99')).data;
+  assert.ok(map.features.some(f=>f.properties.id===ids[0]));
+  assert.ok(map.features.every(f=>f.geometry.coordinates[1]>=-39.01 && f.geometry.coordinates[1]<=-38.99));
+  const fieldUser=(await json('/auth/me','GET',undefined,field)).data.user;
+  const own=(await json('/ordens-servico?limit=2','GET',undefined,field)).data;
+  assert.ok(own.items.every(o=>o.team_id==='team-2' && (!o.assigned_user_id || o.assigned_user_id===fieldUser.id)));
+  assert.equal((await json('/auditoria?limit=2','GET',undefined,reader)).status,403);
+  const audit=await json('/auditoria?limit=2&entity_type=occurrence&entity_id='+ids[0]);
+  assert.equal(audit.status,200);assert.ok(audit.data.items.every(a=>a.entity_id===ids[0] && a.entity_type==='occurrence'));
+  assert.ok(audit.data.items.every(a=>a.user_name));
+});
+
+
+test('inventory calculates balances from full SQL history while listing bounded cursor pages',async()=>{
+  const material=await json('/materiais','POST',{name:'Material para paginação',unit:'UN',unit_cost:3,minimum_stock:1});assert.equal(material.status,200);
+  const user=(await json('/auth/me')).data.user;
+  for(let i=0;i<105;i++)await db.run("INSERT INTO inventory_movements(id,material_id,order_id,invoice_id,type,quantity,unit_cost,stage,notes,user_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",[crypto.randomUUID(),material.data.id,null,null,'entrada',2,3,'ajuste','Teste de paginação',user.id,'2026-10-02T12:00:00.000Z']);
+  const warehouse=await json('/almoxarifado');assert.equal(warehouse.status,200);assert.ok(warehouse.data.movements.length<=100);
+  const summary=warehouse.data.materials.find(m=>m.id===material.data.id);assert.equal(summary.stock,210);assert.equal(summary.average_cost,3);assert.equal(summary.stock_value,630);
+  const path='/almoxarifado/movimentos?limit=50&material_id='+material.data.id;const seen=[];let cursor='';do{const r=await json(path+(cursor?'&cursor='+encodeURIComponent(cursor):''));assert.equal(r.status,200);assert.ok(r.data.items.length<=50);seen.push(...r.data.items.map(x=>x.id));cursor=r.data.next_cursor;}while(cursor);
+  assert.equal(seen.length,105);assert.equal(new Set(seen).size,105);
+  assert.equal((await json(path,'GET',undefined,reader)).status,403);
+  assert.equal((await json(path,'GET',undefined,field)).status,403);
+  assert.equal((await json(path+'&type=saida')).data.items.length,0);
+});
+
+test('HTTP policy permits browser origin Referer on external HTTPS tiles', async () => {
+  const response = await fetch(base + '/auth/me', { headers: { cookie: admin } });
+  assert.equal(response.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+  assert.equal(response.headers.get('cache-control'), 'no-store'); // API only, not external tile requests.
 });

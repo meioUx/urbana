@@ -1,5 +1,5 @@
 import { navigate } from "./navigation.mjs";
-import { chromium } from '@playwright/test';
+import { chromium } from './map-browser-fixture.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -53,7 +53,7 @@ try {
  const registered=await (await field.request.get(url+'/api/campo')).json();
  const occurrence=registered.records.find(o=>o.address==='Rua Operação de Campo, 500');assert.ok(occurrence);assert.equal(registered.records.filter(o=>o.address===occurrence.address).length,1);
  const adminContext=await browser.newContext({viewport:{width:1440,height:1000}}),admin=await adminContext.newPage();admin.on('pageerror',e=>errors.push(e.message));await admin.goto(url);await login(admin,'admin@urbana.local');await admin.getByRole('heading',{name:'Visão geral',exact:true}).waitFor();
- assert.equal((await admin.request.post(url+`/api/ocorrencias/${occurrence.id}/classificar`,{data:{category_id:'category-1',subcategory:'Buraco',priority:'Alta',sector_id:'sector-1'}})).status(),200);
+ assert.equal((await admin.request.post(url+`/api/ocorrencias/${occurrence.id}/classificar`,{data:{version:occurrence.version,category_id:'category-1',subcategory:'Buraco',priority:'Alta',sector_id:'sector-1'}})).status(),200);
  const result=await admin.request.post(url+'/api/ordens-servico',{data:{occurrence_ids:[occurrence.id],team_id:'team-1',scheduled_at:'2026-09-21',responsible:'Equipe de pavimentação',notes:'Sinalizar a via antes do reparo.'}});assert.equal(result.status(),200);const order=await result.json();
  await admin.reload();await navigate(admin,'Ordens de serviço');await admin.locator('tbody tr').filter({hasText:order.code}).click();
  await admin.getByText('Distribuir para equipe ou operador',{exact:true}).click();

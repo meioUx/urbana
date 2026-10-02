@@ -18,6 +18,7 @@ export async function openDatabase() {
       );
     };
     db = {
+      dialect: "postgres",
       all: async (s, a) => (await query(s, a)).rows,
       get: async (s, a) => (await query(s, a)).rows[0],
       run: query,
@@ -29,8 +30,10 @@ export async function openDatabase() {
     };
   } else {
     const sqlite = new DatabaseSync(resolve(folder, "urban.sqlite"));
+    sqlite.function("lower", {deterministic:true}, value => value == null ? null : String(value).toLocaleLowerCase("pt-BR"));
     sqlite.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
     db = {
+      dialect: "sqlite",
       all: async (s, a = []) => sqlite.prepare(s).all(...a),
       get: async (s, a = []) => sqlite.prepare(s).get(...a),
       run: async (s, a = []) => sqlite.prepare(s).run(...a),
@@ -94,6 +97,44 @@ export async function openDatabase() {
       await db.exec("ROLLBACK");
       throw error;
     }
+  }
+  if (!(await db.get("SELECT version FROM schema_migrations WHERE version=5"))) {
+    await db.exec("BEGIN");
+    try {
+      for (const table of ["occurrences", "orders", "action_plans"])
+        await db.exec(`ALTER TABLE ${table} ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)`);
+      await db.run("INSERT INTO schema_migrations(version, applied_at) VALUES(5, ?)", [new Date().toISOString()]);
+      await db.exec("COMMIT");
+    } catch (error) { await db.exec("ROLLBACK"); throw error; }
+  }
+  if (!(await db.get("SELECT version FROM schema_migrations WHERE version=6"))) {
+    await db.exec("BEGIN");
+    try {
+      await db.exec(`CREATE INDEX IF NOT EXISTS idx_occurrences_page ON occurrences(created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_occurrences_sector_status ON occurrences(sector_id,status,created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_occurrences_priority ON occurrences(priority,created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_occurrences_category ON occurrences(category_id,created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_orders_page ON orders(created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_orders_sector_status ON orders(sector_id,status,created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_orders_priority ON orders(priority,created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_orders_due ON orders(due_at,status);
+        CREATE INDEX IF NOT EXISTS idx_order_occurrence_reverse ON order_occurrences(occurrence_id,order_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_page ON audit_logs(created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id,created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_logs(event,created_at,id);
+        CREATE INDEX IF NOT EXISTS idx_consumption_order ON consumption(order_id);
+        CREATE INDEX IF NOT EXISTS idx_consumption_material ON consumption(material_id,created_at);`);
+      await db.run("INSERT INTO schema_migrations(version, applied_at) VALUES(6, ?)", [new Date().toISOString()]);
+      await db.exec("COMMIT");
+    } catch (error) { await db.exec("ROLLBACK"); throw error; }
+  }
+  if (!(await db.get("SELECT version FROM schema_migrations WHERE version=7"))) {
+    await db.exec("BEGIN");
+    try {
+      await db.exec("CREATE INDEX IF NOT EXISTS idx_inventory_page ON inventory_movements(created_at,id); CREATE INDEX IF NOT EXISTS idx_inventory_order ON inventory_movements(order_id,created_at,id); CREATE INDEX IF NOT EXISTS idx_inventory_invoice ON inventory_movements(invoice_id);");
+      await db.run("INSERT INTO schema_migrations(version, applied_at) VALUES(7, ?)", [new Date().toISOString()]);
+      await db.exec("COMMIT");
+    } catch (error) {await db.exec("ROLLBACK");throw error;}
   }
   return db;
 }

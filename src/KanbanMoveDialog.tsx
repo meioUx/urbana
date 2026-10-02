@@ -15,6 +15,7 @@ export default function KanbanMoveDialog({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
+  const [conflict,setConflict] = useState(false);
   const [locating, setLocating] = useState(false);
   const [data, setData] = useState<any>({
     category_id: card.category_id || card.occurrences[0]?.category_id || "",
@@ -106,6 +107,7 @@ export default function KanbanMoveDialog({
           {error}
         </p>
       )}
+      {conflict && <p role="alert">Atualize o quadro antes de continuar.<button type="button" className="button secondary" onClick={() => {onClose();onOpen(card.type,card.id,"overview");}}>Ver versão atual</button></p>}
       {saved ? (
         <>
           <p>
@@ -141,7 +143,7 @@ export default function KanbanMoveDialog({
             setError("");
             try {
               const base = `/${card.type === "order" ? "ordens-servico" : "ocorrencias"}/${card.id}`;
-              let body: any = { kanban_expected_status: card.status };
+              let body: any = { kanban_expected_status: card.status, version: card.version };
               if (move.form === "triage")
                 body = {
                   ...body,
@@ -185,6 +187,7 @@ export default function KanbanMoveDialog({
                 );
               }
             } catch (err: any) {
+              setConflict(err.code === "VERSION_CONFLICT");
               setError(err.message);
             } finally {
               setBusy(false);
