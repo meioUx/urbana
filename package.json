@@ -12,7 +12,7 @@
     "push:keys": "web-push generate-vapid-keys --json",
     "test:field": "node tests/field-browser.mjs",
     "test:kanban": "node tests/kanban-browser.mjs",
-    "test:map": "node tests/map-browser.mjs"
+    "test:map": "node tests/map-browser.mjs && node tests/territorial-browser.mjs"
   },
   "dependencies": {
     "express": "^5.1.0",

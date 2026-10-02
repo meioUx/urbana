@@ -34,7 +34,6 @@ export const kanbanColumns = [
     title: "Devolvidas",
     hint: "Analisar motivo e reprogramar",
   },
-  { status: "CONCLUIDA", title: "Concluídas", hint: "Resultado validado" },
   {
     status: "CANCELADA",
     title: "Canceladas",
@@ -44,6 +43,11 @@ export const kanbanColumns = [
     status: "RECUSADA",
     title: "Recusadas",
     hint: "Justificativa registrada na triagem",
+  },
+  {
+    status: "CONCLUIDA",
+    title: "Concluídas",
+    hint: "Resultado validado e conclusão registrada",
   },
 ];
 

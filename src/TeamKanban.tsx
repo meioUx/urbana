@@ -83,7 +83,9 @@ export default function TeamKanban({
   const filtered = scoped.filter(
     (card) =>
       (!priority || card.priority === priority) &&
-      (showClosed || !closedStatus(card.status)) &&
+      (card.status === "CONCLUIDA" ||
+        showClosed ||
+        !closedStatus(card.status)) &&
       (!query.trim() ||
         [
           card.code,
@@ -313,7 +315,7 @@ export default function TeamKanban({
               checked={showClosed}
               onChange={(e) => setShowClosed(e.target.checked)}
             />
-            Mostrar encerradas (concluídas, canceladas e recusadas)
+            Mostrar canceladas e recusadas
           </label>
           <button
             className="kanban-tool"
@@ -493,7 +495,12 @@ export default function TeamKanban({
         tabIndex={0}
       >
         {kanbanColumns
-          .filter((col) => showClosed || !closedStatus(col.status))
+          .filter(
+            (col) =>
+              col.status === "CONCLUIDA" ||
+              showClosed ||
+              !closedStatus(col.status),
+          )
           .map((col) => {
             const members = filtered.filter((c) => c.status === col.status),
               limit = config.limits[col.status] || 0,
@@ -706,8 +713,19 @@ export default function TeamKanban({
                       {card.type === "order" && (
                         <div className="kanban-card-meta">
                           <span className={late ? "kanban-late" : ""}>
-                            {late ? "Prazo vencido" : "Programada"} ·{" "}
-                            {date(late ? card.due_at : card.scheduled_at)}
+                            {card.status === "CONCLUIDA"
+                              ? "Concluída"
+                              : late
+                                ? "Prazo vencido"
+                                : "Programada"}{" "}
+                            ·{" "}
+                            {date(
+                              card.status === "CONCLUIDA"
+                                ? card.completed_at
+                                : late
+                                  ? card.due_at
+                                  : card.scheduled_at,
+                            )}
                           </span>
                           {age !== null && (
                             <span title="Tempo desde a programação inicial da OS">

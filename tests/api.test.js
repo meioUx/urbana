@@ -414,3 +414,28 @@ test('HTTP policy permits browser origin Referer on external HTTPS tiles', async
   assert.equal(response.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
   assert.equal(response.headers.get('cache-control'), 'no-store'); // API only, not external tile requests.
 });
+
+test('territorial summary uses linked OS data and authenticated evidence without administrative payload', async () => {
+  const oc = await createTriaged(-32.4);
+  const empty = await json(`/mapa/ocorrencias/${oc.id}/resumo`);
+  assert.equal(empty.status,200); assert.deepEqual(empty.data.orders,[]);
+  const created = await schedule(oc); assert.equal(created.status,200);
+  const id = created.data.id;
+  await attach(`/ordens-servico/${id}`,'antes');
+  let result = (await json(`/mapa/ocorrencias/${oc.id}/resumo`)).data;
+  assert.equal(result.address,oc.address); assert.equal(result.orders[0].code,created.data.code);
+  assert.equal(result.orders[0].started_at,null); assert.equal(result.orders[0].attendance_at,created.data.scheduled_at);
+  assert.ok(result.orders[0].team); assert.ok(result.orders[0].before); assert.equal(result.orders[0].after,null);
+  assert.deepEqual(Object.keys(result.orders[0]).sort(),['code','started_at','attendance_at','completed_at','expected_completion_at','team','before','after'].sort());
+  assert.equal((await json(`/mapa/ocorrencias/${oc.id}/resumo`,'GET',undefined,null)).status,401);
+  assert.equal((await json(`/mapa/ocorrencias/${oc.id}/resumo`,'GET',undefined,field)).data.orders.length,0);
+  await json(`/ordens-servico/${id}/assumir`,'POST',{});
+  await json(`/ordens-servico/${id}/iniciar`,'POST',{lat:-32.4,lng:-48.6});
+  await attach(`/ordens-servico/${id}`,'depois');
+  await json(`/ordens-servico/${id}/material`,'POST',{material_id:'material-1',quantity:1});
+  await json(`/ordens-servico/${id}/concluir`,'POST',{notes:'Servico executado'});
+  await json(`/ordens-servico/${id}/validar`,'POST',{});
+  const order = (await json(`/ordens-servico/${id}`)).data;
+  result = (await json(`/mapa/ocorrencias/${oc.id}/resumo`)).data.orders[0];
+  assert.equal(result.started_at,order.started_at); assert.equal(result.attendance_at,order.finished_at); assert.equal(result.completed_at,order.completed_at); assert.ok(result.after);
+});

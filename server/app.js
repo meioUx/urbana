@@ -445,6 +445,17 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       return entity("occurrences", id);
     }, true),
   );
+  // Lightweight operational details, requested only when a territorial point opens.
+  app.get("/api/mapa/ocorrencias/:id/resumo", route(async (req) => {
+    const occurrence = await entity("occurrences", req.params.id);
+    const linked = (await db.all("SELECT o.* FROM orders o JOIN order_occurrences r ON r.order_id=o.id WHERE r.occurrence_id=? ORDER BY o.created_at DESC,o.id", [occurrence.id])).map(unpack).filter(o => canAccessOrder(req.user, o));
+    return { code: occurrence.code, address: occurrence.address, orders: await Promise.all(linked.map(async o => {
+      const photos = (await evidence("order", o.id)).filter(e => e.mime.startsWith("image/") && e.created_at >= (o.reprogrammed_at || o.created_at)).sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
+      const photo = stage => { const e = photos.find(e => e.stage === stage && (stage !== "depois" || e.created_at >= [o.started_at, o.reopened_at, o.reprogrammed_at, o.created_at].filter(Boolean).sort().at(-1))); return e ? `/api/anexos/${e.id}` : null; };
+      const team = o.team_id ? unpack(await db.get("SELECT * FROM catalogs WHERE id=?", [o.team_id])) : null;
+      return { code: o.code, started_at: o.started_at || null, attendance_at: o.finished_at || o.scheduled_at || null, completed_at: o.completed_at || null, expected_completion_at: o.due_at || null, team: team?.name || null, before: photo("antes"), after: photo("depois") };
+    })) };
+  }));
   app.get(
     "/api/ocorrencias/:id",
     route(async (req) => {

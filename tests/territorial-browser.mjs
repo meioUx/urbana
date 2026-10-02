@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import express from "express";
+import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { chromium } from "./map-browser-fixture.mjs";
+import { openDatabase } from "../server/db.js";
+import { seed } from "../server/seed.js";
+import { createApp } from "../server/app.js";
+const temp = mkdtempSync(join(tmpdir(),"urbana-territorial-"));
+process.env.DATA_DIR=temp;process.env.DEMO_DATA="true";process.env.ADMIN_PASSWORD="Map@Test2026";delete process.env.DATABASE_URL;
+const db=await openDatabase();await seed(db);
+const app=createApp(db);app.use(express.static(resolve("dist")));app.get("/{*path}",(req,res)=>res.sendFile(resolve("dist/index.html")));
+const server=app.listen(0,"127.0.0.1");await new Promise(r=>server.once("listening",r));
+const base=`http://127.0.0.1:${server.address().port}`;
+const browser=await chromium.launch({headless:true,channel:"msedge"});
+try {
+ const page=await browser.newPage({viewport:{width:1440,height:900}});const errors=[];page.on("pageerror",e=>errors.push(e.message));
+ await page.goto(base+"/mapa");await page.getByLabel("E-mail",{exact:true}).fill("admin@urbana.local");await page.getByLabel("Senha",{exact:true}).fill("Map@Test2026");await page.getByRole("button",{name:"Entrar",exact:true}).click();
+ await page.locator(".territorial-view .leaflet-container").waitFor();await page.locator(".leaflet-overlay-pane path[role=button]").first().waitFor();
+ assert.equal(await page.locator(".sidebar").count(),0);
+ const filters=page.getByRole("button",{name:/^Filtros/});await filters.click();assert.equal(await filters.getAttribute("aria-expanded"),"true");
+ await page.getByLabel("Buscar registros").fill("no matching address 123456");await page.waitForTimeout(400);await page.locator(".filter-count").waitFor();await page.waitForFunction(()=>document.querySelectorAll('.leaflet-overlay-pane path[role=button]').length===0);
+ await page.keyboard.press("Escape");assert.equal(await filters.getAttribute("aria-expanded"),"false");assert.equal(await filters.evaluate(el=>el===document.activeElement),true);
+ await filters.click();await page.getByRole("button",{name:"Limpar filtros",exact:true}).click();await page.getByRole("button",{name:"Fechar filtros"}).click();await page.locator(".leaflet-overlay-pane path[role=button]").first().waitFor();
+ let calls=0;let order={code:"OS-TEST",started_at:null,attendance_at:null,completed_at:null,expected_completion_at:null,team:null,before:null,after:null};
+ await page.route("**/api/mapa/ocorrencias/*/resumo",route=>{calls++;return route.fulfill({json:{code:"OC-TEST",address:"Rua operacional",orders:[order]}});});
+ const marker=()=>page.locator('.leaflet-overlay-pane path[role=button]').first();
+ await marker().focus();await page.keyboard.press("Enter");await page.getByRole("heading",{name:"OS-TEST"}).waitFor();assert.equal(calls,1);
+ assert.equal(await page.getByText("Foto ainda n\u00e3o registrada",{exact:true}).count(),2);assert.equal(await page.getByText("Equipe respons\u00e1vel",{exact:true}).count(),0);assert.equal(await page.locator(".operational-summary dd").first().innerText(),"\u2014");
+ assert.equal(await page.locator(".operational-summary").getByText(/Prioridade|Materiais|Fiscal|Hist/).count(),0);
+ await page.keyboard.press("Escape");await page.locator(".leaflet-popup").waitFor({state:"hidden"});
+ const photo="data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="green"/></svg>');
+ for(const [before,after] of [[photo,null],[null,photo],[photo,photo]]){
+  order={...order,started_at:"2026-10-01T10:00:00Z",attendance_at:"2026-10-02",completed_at:after?"2026-10-02T14:00:00Z":null,expected_completion_at:"2026-10-03T14:00:00Z",team:"Equipe teste",before,after};
+  await page.reload();await marker().waitFor();
+  await marker().focus();await page.keyboard.press("Enter");await page.getByText("Equipe teste",{exact:true}).waitFor();assert.equal(await page.locator(".operational-photos img").count(),Number(!!before)+Number(!!after));
+  await page.keyboard.press("Escape");await page.locator(".leaflet-popup").waitFor({state:"hidden"});
+ }
+ await page.getByRole("button",{name:"Mapa de calor",exact:true}).click();await page.locator(".heat-legend").waitFor();assert.equal(await page.locator('.leaflet-overlay-pane path[role=button]').count(),0);
+ await page.getByRole("button",{name:"Pontos de ocorr\u00eancias",exact:true}).click();await marker().waitFor();
+ await page.setViewportSize({width:390,height:700});await page.emulateMedia({reducedMotion:"reduce"});await filters.click();assert.equal(await page.locator(".territorial-filter-panel").evaluate(el=>getComputedStyle(el).transitionDuration),"0s");await page.getByRole("button",{name:"Fechar filtros"}).click();await marker().focus();await page.keyboard.press("Enter");await page.getByText("Equipe teste",{exact:true}).waitFor();assert.equal(await page.locator(".operational-photos").evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(" ").length),1);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.waitForTimeout(200);
+ const popupBounds = await page.locator(".leaflet-popup").boundingBox();assert.ok(popupBounds.y >= 65 && popupBounds.y + popupBounds.height <= 560);
+ mkdirSync("test-results",{recursive:true});await page.screenshot({path:"test-results/territorial-mobile.png"});await page.keyboard.press("Escape");
+ await page.setViewportSize({width:1440,height:900});await page.screenshot({path:"test-results/territorial-desktop.png"});
+ await page.getByRole("button",{name:"Voltar ao sistema"}).click();await page.locator(".map-layout").waitFor();await page.getByRole("button",{name:"Abrir mapa completo \u2197",exact:true}).click();await page.locator(".territorial-view").waitFor();assert.equal(new URL(page.url()).pathname,"/mapa");
+ await marker().focus();await page.keyboard.press("Enter");await page.locator(".operational-open").first().waitFor();
+ const controls=await page.locator(".heat-controls").evaluate(el=>({button:el.querySelector("button").getBoundingClientRect().x,count:el.querySelector("span").getBoundingClientRect().x}));assert.ok(controls.count>controls.button);
+ await page.locator(".operational-open").first().click();await page.locator(".territorial-view").waitFor({state:"hidden"});await page.locator(".detail-summary").waitFor();
+ assert.deepEqual(errors,[]);console.log("Territorial UI: route, filters, keyboard, missing data, teams, photos, heatmap, mobile, reduced motion OK");
+} finally {await browser.close();await new Promise(r=>server.close(r));await db.close();rmSync(temp,{recursive:true,force:true});}

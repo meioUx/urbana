@@ -1,5 +1,6 @@
 import { lazyModule } from "./shared/lazyModule";
 import { colors, labels } from "./shared/workflow";
+import TerritorialView from "./modules/map/TerritorialView";
 const GeoMap = lazyModule(() => import("./modules/map/GeoMap"));
 const AuditPanel = lazyModule(() => import("./modules/administration/AuditPanel"));
 const PlanningPanel = lazyModule(() => import("./PlanningPanel"));
@@ -219,7 +220,8 @@ function Modal({
 function App() {
   const [boot, setBoot] = useState<Boot | null>(null),
     [loading, setLoading] = useState(true),
-    [page, setPage] = useState("dashboard"),
+    [page, setPage] = useState(window.location.pathname === "/mapa" ? "map" : "dashboard"),
+    [mapOnly, setMapOnly] = useState(window.location.pathname === "/mapa"),
     [fieldMode, setFieldMode] = useState(window.location.pathname === "/campo"),
     [rows, setRows] = useState<Row[]>([]),
     [orders, setOrders] = useState<Row[]>([]),
@@ -265,10 +267,33 @@ function App() {
     },200);
     return () => {cancelled=true;window.clearTimeout(timer);};
   },[boot?.user.id,pagedScope,listKey,listCursor,lastSync]);
+  const [mapRows, setMapRows] = useState<Row[]>([]);
+  const [mapNeighborhoods, setMapNeighborhoods] = useState<string[]>([]);
+  useEffect(() => {
+    if (!boot || page !== "map") return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams();
+      for (const [key,value] of Object.entries({q,status,priority,category_id:category,neighborhood,from,to})) if (value) params.set(key,value);
+      api(`/mapa/ocorrencias?${params}`).then(data => {
+        if (!cancelled) { const next = data.features.map((f: any) => f.properties);
+          setMapRows(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+          setMapNeighborhoods(previous => [...new Set([...previous, ...next.map((r: Row) => r.neighborhood).filter(Boolean)])].sort());
+          setSyncError(""); }
+      }).catch(e => { if (!cancelled) setSyncError(e.message); });
+    },200);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [boot?.user.id,page,q,status,priority,category,neighborhood,from,to,lastSync]);
+  useEffect(() => {
+    const pop = () => { setMapOnly(window.location.pathname === "/mapa"); setPage("map"); };
+    window.addEventListener("popstate",pop);
+    return () => window.removeEventListener("popstate",pop);
+  }, []);
   const pageControls = <div className="form-actions" aria-label="Paginação"><button className="button secondary" disabled={listBusy || !listBack.length} onClick={() => {setListCursor(listBack.at(-1) || "");setListBack(listBack.slice(0,-1));}}>Anterior</button><span role="status">Página {listBack.length+1} · {listBusy ? "Atualizando..." : listPage.items.length+" registros"}</span><button className="button secondary" disabled={listBusy || !listPage.has_more} onClick={() => {setListBack([...listBack,listCursor]);setListCursor(listPage.next_cursor);}}>Próxima</button></div>;
   const refresh = async () => {
     const b = await api("/bootstrap");
-    if (b.user.role === "Equipe de Campo") {
+    if (b.user.role === "Equipe de Campo" || window.location.pathname === "/mapa") {
+      if (b.user.role !== "Equipe de Campo") setLastSync(new Date().toISOString());
       setBoot(b);
       return;
     }
@@ -379,7 +404,7 @@ function App() {
     setMobile(false);
     setDetail(null);
   };
-  const filtered: Row[] = pagedScope && page !== "orders" ? (listPage.key === listKey ? listPage.items : []) : rows.filter(
+  const filtered: Row[] = page === "map" ? mapRows : pagedScope && page !== "orders" ? (listPage.key === listKey ? listPage.items : []) : rows.filter(
     (r) =>
       (!q ||
         [r.code, r.address, r.neighborhood, r.description].some((x) =>
@@ -593,7 +618,7 @@ function App() {
           onChange={(e) => setNeighborhood(e.target.value)}
         >
           <option value="">Todos os bairros</option>
-          {[...new Set(rows.map((r) => r.neighborhood))].sort().map((n) => (
+          {[...new Set([...mapNeighborhoods, ...rows.map((r) => r.neighborhood), neighborhood].filter(Boolean))].sort().map((n) => (
             <option key={n}>{n}</option>
           ))}
         </select>
@@ -642,6 +667,11 @@ function App() {
       )}
     </div>
   );
+  const enterMap = () => { history.pushState(null,"","/mapa"); setMapOnly(true); };
+  const leaveMap = () => { history.pushState(null,"","/"); setMapOnly(false); refresh().catch(e => setSyncError(e.message)); };
+  if (mapOnly) return <TerritorialView filters={filters} activeCount={[q,status,priority,category,neighborhood,from,to].filter(Boolean).length} onClear={() => {setQ("");setStatus("");setPriority("");setCategory("");setNeighborhood("");setFrom("");setTo("");}} onBack={leaveMap} error={syncError}>
+    <GeoMap rows={filtered} onSelect={r => { leaveMap(); openDetail("occurrence", r.id); }} heatmap large loadSummary={id => api(`/mapa/ocorrencias/${id}/resumo`)} />
+  </TerritorialView>;
   const occurrenceTable = (data: Row[], compact = false) => (
     <div className="table-scroll">
       <table>
@@ -880,9 +910,10 @@ function App() {
                 <div>
                   <GeoMap
                     rows={filtered}
-
+                    onSelect={r => openDetail("occurrence", r.id)}
+                    onOpenFullMap={enterMap}
                     heatmap
-                    onSelect={(r) => openDetail("occurrence", r.id)}
+                    loadSummary={id => api(`/mapa/ocorrencias/${id}/resumo`)}
                     large
                   />
                   <div className="legend">

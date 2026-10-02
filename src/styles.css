@@ -1777,7 +1777,7 @@ textarea {
 .territorial-heat-layer { position: absolute; }
 .heat-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
 .heat-controls button[aria-pressed="true"] { background: #e5f3ec; border-color: #26896b; color: #185e46; }
-.heat-controls > span { font-size: 12px; color: #62736b; }
+.heat-controls > span { font-size: 12px; color: #62736b; margin-left: auto; text-align: right; }
 .heat-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 0; font-size: 13px; }
 .heat-ramp { width: 160px; height: 12px; border-radius: 8px; background: linear-gradient(to right, #2374e1, #24cbb1, #e6ed45, #f89b28, #db2929); }
 .heat-legend small { flex-basis: 100%; line-height: 1.5; }

@@ -98,6 +98,14 @@ try {
   assert.equal(await page.locator("#kanban-loads").count(), 0);
   const card = (o) => board.locator(`[data-card-key="occurrence:${o.id}"]`);
   const column = (status) => board.locator(`[data-status="${status}"]`);
+  assert.equal(await column("CONCLUIDA").count(), 1);
+  assert.equal(
+    await board.locator(".kanban-column").last().getAttribute("data-status"),
+    "CONCLUIDA",
+  );
+  assert.equal(await column("CANCELADA").count(), 0);
+  assert.equal(await column("RECUSADA").count(), 0);
+
   await page
     .getByRole("button", { name: "Regras do quadro", exact: true })
     .click();
@@ -284,7 +292,9 @@ try {
     type: "touchCancel",
     touchPoints: [],
   });
-  const targetRect = await column("IDENTIFICADA").locator("header").boundingBox();
+  const targetRect = await column("IDENTIFICADA")
+    .locator("header")
+    .boundingBox();
   assert.ok(targetRect);
   await cdp.send("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -298,25 +308,49 @@ try {
     type: "touchEnd",
     touchPoints: [],
   });
-  await page.getByRole("status").filter({ hasText: "Ordem dos cartões salva" }).waitFor();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Ordem dos cartões salva" })
+    .waitFor();
   const touchOrder = await (await page.request.get(url + "/api/kanban")).json();
-  assert.equal(touchOrder.order.IDENTIFICADA.at(-1), "occurrence:" + fixtures[2].id);
+  assert.equal(
+    touchOrder.order.IDENTIFICADA.at(-1),
+    "occurrence:" + fixtures[2].id,
+  );
   await cdp.detach();
   assert.equal(await page.locator(".kanban-touch-ghost").count(), 0);
-  const reader = await browser.newPage({viewport: {width: 1280, height: 900}});
-  reader.on("pageerror", e => errors.push(e.message));
+  const reader = await browser.newPage({
+    viewport: { width: 1280, height: 900 },
+  });
+  reader.on("pageerror", (e) => errors.push(e.message));
   await reader.goto(url);
-  await reader.getByLabel("E-mail", {exact: true}).fill("consulta@urbana.local");
-  await reader.getByLabel("Senha", {exact: true}).fill("Urbana@2026");
-  await reader.getByRole("button", {name: "Entrar", exact: true}).click();
-  await reader.getByRole("heading", {name: "Visão geral", exact: true}).waitFor();
+  await reader
+    .getByLabel("E-mail", { exact: true })
+    .fill("consulta@urbana.local");
+  await reader.getByLabel("Senha", { exact: true }).fill("Urbana@2026");
+  await reader.getByRole("button", { name: "Entrar", exact: true }).click();
+  await reader
+    .getByRole("heading", { name: "Visão geral", exact: true })
+    .waitFor();
   await navigate(reader, "Kanban de equipes");
-  await reader.getByRole("region", {name: "Quadro de gestão das equipes"}).waitFor();
-  assert.equal(await reader.locator('.kanban-card[draggable="true"]').count(),0);
-  assert.equal(await reader.locator('.kanban-card-actions select').count(),0);
-  assert.equal(await reader.locator('.kanban-prioritize').count(),0);
-  await reader.getByRole("button", {name: "Regras do quadro", exact: true}).click();
-  assert.equal(await reader.getByRole("button", {name: "Salvar limites", exact: true}).count(),0);
+  await reader
+    .getByRole("region", { name: "Quadro de gestão das equipes" })
+    .waitFor();
+  assert.equal(
+    await reader.locator('.kanban-card[draggable="true"]').count(),
+    0,
+  );
+  assert.equal(await reader.locator(".kanban-card-actions select").count(), 0);
+  assert.equal(await reader.locator(".kanban-prioritize").count(), 0);
+  await reader
+    .getByRole("button", { name: "Regras do quadro", exact: true })
+    .click();
+  assert.equal(
+    await reader
+      .getByRole("button", { name: "Salvar limites", exact: true })
+      .count(),
+    0,
+  );
   await reader.close();
   assert.deepEqual(errors, []);
   console.log(
