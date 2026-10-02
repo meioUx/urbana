@@ -1,64 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { priorities, unpack, now, canAccessOrder } from "./domain.js";
+import { unpack, now, canAccessOrder } from "./domain.js";
 
-const normalize = (value) =>
-  String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-export function streetIdentity(row) {
-  const street = String(row.address || "")
-    .split(",")[0]
-    .replace(/\s+(?:n[º°.]?\s*|numero\s+)\d+.*$/i, "")
-    .trim();
-  const normalized = normalize(street)
-    .replace(/^r\s+/, "rua ")
-    .replace(/^av\s+/, "avenida ");
-  return {
-    street,
-    key: JSON.stringify([normalized, normalize(row.neighborhood)]),
-  };
-}
-export function planningPriority(rows) {
-  const highest =
-    priorities.find((p) => rows.some((o) => o.priority === p)) || "Baixa";
-  return rows.length >= 2 && priorities.indexOf(highest) > 1 ? "Alta" : highest;
-}
-export function groupStreets(rows) {
-  const groups = new Map();
-  for (const row of rows) {
-    if (["CONCLUIDA", "CANCELADA"].includes(row.status)) continue;
-    const { street, key } = streetIdentity(row);
-    if (!street || !row.neighborhood) continue;
-    if (!groups.has(key))
-      groups.set(key, {
-        key,
-        street,
-        neighborhood: row.neighborhood,
-        occurrences: [],
-      });
-    groups.get(key).occurrences.push(row);
-  }
-  return [...groups.values()]
-    .map((g) => ({
-      ...g,
-      priority: planningPriority(g.occurrences),
-      oldest_at: g.occurrences.reduce(
-        (a, o) => (o.created_at < a ? o.created_at : a),
-        g.occurrences[0].created_at,
-      ),
-    }))
-    .sort(
-      (a, b) =>
-        priorities.indexOf(a.priority) - priorities.indexOf(b.priority) ||
-        b.occurrences.length - a.occurrences.length ||
-        a.oldest_at.localeCompare(b.oldest_at),
-    );
-}
+import {
+  streetIdentity,
+  planningPriority,
+  groupStreets,
+} from "../shared/planning.mjs";
+export {
+  streetIdentity,
+  planningPriority,
+  groupStreets,
+} from "../shared/planning.mjs";
+
 export function registerPlanning(app, db, { route, allow, audit, fail }) {
   app.get(
     "/api/planejamento",
@@ -84,11 +38,14 @@ export function registerPlanning(app, db, { route, allow, audit, fail }) {
         const cancelled = members.filter(
           (o) => o.status === "CANCELADA",
         ).length;
+        const rejected = members.filter((o) => o.status === "RECUSADA").length;
         const status =
           completed === members.length
             ? "Concluído"
-            : completed + cancelled === members.length
-              ? "Encerrado com cancelamentos"
+            : completed + cancelled + rejected === members.length
+              ? rejected
+                ? "Encerrado com recusas"
+                : "Encerrado com cancelamentos"
               : members.some((o) =>
                     [
                       "EM_DESLOCAMENTO",
@@ -100,9 +57,15 @@ export function registerPlanning(app, db, { route, allow, audit, fail }) {
                 : "Planejado";
         return {
           ...p,
-          occurrences: members,
+          occurrences: members.map((o) => ({
+            ...o,
+            order_ids: orderLinks
+              .filter((l) => l.occurrence_id === o.id)
+              .map((l) => l.order_id),
+          })),
           completed,
           cancelled,
+          rejected,
           status,
           orders: orders.filter(
             (o) =>
@@ -121,6 +84,9 @@ export function registerPlanning(app, db, { route, allow, audit, fail }) {
           ...g,
           occurrences: g.occurrences.map((o) => ({
             ...o,
+            order_ids: orderLinks
+              .filter((l) => l.occurrence_id === o.id)
+              .map((l) => l.order_id),
             plan_id:
               links.find((l) => l.occurrence_id === o.id)?.plan_id || null,
           })),
@@ -129,69 +95,95 @@ export function registerPlanning(app, db, { route, allow, audit, fail }) {
       };
     }),
   );
+  const createPlan = async (req, payload = req.body) => {
+    const data = z
+      .object({
+        occurrence_ids: z.array(z.string().min(1)).min(1).max(100),
+        objective: z.string().trim().min(5).max(3000),
+        responsible: z.string().trim().min(1).max(200),
+        scheduled_at: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .refine((v) => {
+            const d = new Date(v);
+            return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+          }, "Data inválida."),
+      })
+      .parse(payload);
+    if (new Set(data.occurrence_ids).size !== data.occurrence_ids.length)
+      fail(400, "Ocorrências repetidas.");
+    const rows = [];
+    for (const id of data.occurrence_ids) {
+      const row = unpack(
+        await db.get("SELECT * FROM occurrences WHERE id=?", [id]),
+      );
+      if (!row) fail(404, "Ocorrência não encontrada.");
+      if (!["IDENTIFICADA", "EM_TRIAGEM"].includes(row.status))
+        fail(409, "Escolha demandas ainda não programadas para criar o plano.");
+      if (
+        await db.get(
+          "SELECT order_id FROM order_occurrences WHERE occurrence_id=?",
+          [id],
+        )
+      )
+        fail(
+          409,
+          "Uma demanda já possui ordem de serviço. Atualize o planejamento.",
+        );
+      if (
+        await db.get(
+          "SELECT plan_id FROM action_plan_occurrences WHERE occurrence_id=?",
+          [id],
+        )
+      )
+        fail(
+          409,
+          "Uma ocorrência já pertence a um plano. Atualize o planejamento.",
+        );
+      rows.push(row);
+    }
+    if (new Set(rows.map((o) => streetIdentity(o).key)).size !== 1)
+      fail(400, "Selecione ocorrências da mesma rua e bairro.");
+    if (new Set(rows.map((o) => o.sector_id)).size !== 1)
+      fail(
+        400,
+        "Selecione demandas do mesmo setor para planejar a intervenção.",
+      );
+    const id = randomUUID(),
+      stamp = now();
+    const plan = {
+      ...data,
+      street: streetIdentity(rows[0]).street,
+      neighborhood: rows[0].neighborhood,
+      priority: planningPriority(rows),
+      sector_id: rows[0].sector_id,
+    };
+    const prefix = `PA-${new Date().getFullYear()}-`;
+    const previous = await db.all(
+      "SELECT code FROM action_plans WHERE code LIKE ?",
+      [`${prefix}%`],
+    );
+    const highest = previous.reduce((n, row) => {
+      const suffix = row.code.slice(prefix.length);
+      return /^\d+$/.test(suffix) ? Math.max(n, Number(suffix)) : n;
+    }, 0);
+    const code = `${prefix}${String(highest + 1).padStart(5, "0")}`;
+    await db.run(
+      "INSERT INTO action_plans(id,code,created_at,data) VALUES(?,?,?,?)",
+      [id, code, stamp, JSON.stringify(plan)],
+    );
+    for (const o of rows)
+      await db.run(
+        "INSERT INTO action_plan_occurrences(plan_id,occurrence_id) VALUES(?,?)",
+        [id, o.id],
+      );
+    await audit(req, "action_plan", id, "Plano de ação criado", null, plan);
+    return { id, code, ...plan, created_at: stamp };
+  };
   app.post(
     "/api/planos-acao",
     allow("schedule"),
-    route(async (req) => {
-      const data = z
-        .object({
-          occurrence_ids: z.array(z.string().min(1)).min(2).max(100),
-          objective: z.string().trim().min(5).max(3000),
-          responsible: z.string().trim().min(1).max(200),
-          scheduled_at: z
-            .string()
-            .regex(/^\d{4}-\d{2}-\d{2}$/)
-            .refine((v) => {
-              const d = new Date(v);
-              return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
-            }, "Data inválida."),
-        })
-        .parse(req.body);
-      if (new Set(data.occurrence_ids).size !== data.occurrence_ids.length)
-        fail(400, "Ocorrências repetidas.");
-      const rows = [];
-      for (const id of data.occurrence_ids) {
-        const row = unpack(
-          await db.get("SELECT * FROM occurrences WHERE id=?", [id]),
-        );
-        if (!row) fail(404, "Ocorrência não encontrada.");
-        if (["CONCLUIDA", "CANCELADA"].includes(row.status))
-          fail(409, "O plano deve conter apenas ocorrências abertas.");
-        if (
-          await db.get(
-            "SELECT plan_id FROM action_plan_occurrences WHERE occurrence_id=?",
-            [id],
-          )
-        )
-          fail(
-            409,
-            "Uma ocorrência já pertence a um plano. Atualize o planejamento.",
-          );
-        rows.push(row);
-      }
-      if (new Set(rows.map((o) => streetIdentity(o).key)).size !== 1)
-        fail(400, "Selecione ocorrências da mesma rua e bairro.");
-      const id = randomUUID(),
-        stamp = now(),
-        count = await db.get("SELECT COUNT(*) AS n FROM action_plans");
-      const plan = {
-        ...data,
-        street: streetIdentity(rows[0]).street,
-        neighborhood: rows[0].neighborhood,
-        priority: planningPriority(rows),
-      };
-      const code = `PA-${new Date().getFullYear()}-${String(Number(count.n) + 1).padStart(5, "0")}`;
-      await db.run(
-        "INSERT INTO action_plans(id,code,created_at,data) VALUES(?,?,?,?)",
-        [id, code, stamp, JSON.stringify(plan)],
-      );
-      for (const o of rows)
-        await db.run(
-          "INSERT INTO action_plan_occurrences(plan_id,occurrence_id) VALUES(?,?)",
-          [id, o.id],
-        );
-      await audit(req, "action_plan", id, "Plano de ação criado", null, plan);
-      return { id, code, ...plan, created_at: stamp };
-    }, true),
+    route((req) => createPlan(req), true),
   );
+  return { createPlan };
 }

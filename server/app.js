@@ -1,6 +1,7 @@
 import { registerField, queueOrderNotification } from "./field.js";
 import { registerSectorControl } from "./sector-control.js";
 import { registerPlanning } from "./planning.js";
+import { kanbanService } from "./kanban.js";
 import { registerInvoices } from "./invoices.js";
 import { registerInventory, inventoryBalance } from "./inventory.js";
 import express from "express";
@@ -20,6 +21,11 @@ import {
   distance,
   now,
 } from "./domain.js";
+import {
+  canTransition,
+  isProjectedOrderStatus,
+  workflowStatus as status,
+} from "./domain/workflow.js";
 
 const text = z.string().trim().min(1).max(2000);
 const coordinate = {
@@ -59,6 +65,7 @@ const kinds = [
 
 export function createApp(db) {
   const app = express();
+  const kanban = kanbanService(db, fail);
   const folder = resolve(process.env.DATA_DIR || "data", "uploads");
   mkdirSync(folder, { recursive: true });
   app.disable("x-powered-by");
@@ -89,7 +96,18 @@ export function createApp(db) {
       const task = queue.then(async () => {
         if (write) await db.exec("BEGIN");
         try {
+          const wip = write ? await kanban.snapshot() : null;
+          if (write && req.body?.kanban_expected_status) {
+            const match = req.path.match(/^\/api\/(ocorrencias|ordens-servico)\/([^/]+)\//);
+            const ids = match ? [match[2]] : req.body.occurrence_ids;
+            if (ids) for (const id of ids) {
+              const table = match?.[1] === "ordens-servico" ? "orders" : "occurrences";
+              const current = await db.get(`SELECT status FROM ${table} WHERE id=?`, [id]);
+              if (!current || current.status !== req.body.kanban_expected_status) fail(409, "O cartão mudou de etapa. Atualize o quadro antes de movimentar.");
+            }
+          }
           const result = await fn(req, res);
+          if (write) await kanban.enforce(wip);
           if (write) await db.exec("COMMIT");
           if (!res.headersSent) res.json(result ?? { ok: true });
         } catch (e) {
@@ -129,11 +147,6 @@ export function createApp(db) {
       after ? JSON.stringify(after) : null,
       now(),
     ]);
-  const sync = (id) =>
-    db.run(
-      "INSERT INTO gis_sync VALUES(?,'pending',0,NULL,?) ON CONFLICT(occurrence_id) DO UPDATE SET status='pending', error=NULL, updated_at=excluded.updated_at",
-      [id, now()],
-    );
   const allow = (action) => (req, res, next) =>
     permissions[action].includes(req.user.role)
       ? next()
@@ -170,6 +183,8 @@ export function createApp(db) {
       id,
     ]);
   const propagate = async (req, order, status) => {
+    if (!isProjectedOrderStatus(status))
+      fail(500, "Status de atendimento inválido para propagação.");
     for (const { occurrence_id: id } of await related(order.id)) {
       const old = await entity("occurrences", id);
       const siblings = await db.all(
@@ -177,10 +192,10 @@ export function createApp(db) {
         [id, order.id],
       );
       const active = siblings.filter(
-        (x) => !["CONCLUIDA", "CANCELADA"].includes(x.status),
+        (x) => !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(x.status),
       );
       const resulting =
-        ["CONCLUIDA", "CANCELADA"].includes(status) && active.length
+        ["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(status) && active.length
           ? active[0].status
           : status;
       await db.run("UPDATE occurrences SET status=?,updated_at=? WHERE id=?", [
@@ -196,7 +211,7 @@ export function createApp(db) {
         { status: old.status },
         { status: resulting },
       );
-      await sync(id);
+
     }
   };
   const loginAttempts = new Map();
@@ -276,6 +291,7 @@ export function createApp(db) {
     "/api/auth/me",
     route((req) => ({ user: req.user })),
   );
+  kanban.register(app, { route, audit, allow });
   app.post(
     "/api/auth/logout",
     route(async (req, res) => {
@@ -293,6 +309,7 @@ export function createApp(db) {
         user: req.user,
         catalogs: (await db.all("SELECT * FROM catalogs")).map(unpack),
         settings,
+        kanban: await kanban.read(),
         operators: permissions.schedule.includes(req.user.role)
           ? await db.all(
               "SELECT id,name,team_id FROM users WHERE role='Equipe de Campo' ORDER BY name",
@@ -300,16 +317,6 @@ export function createApp(db) {
           : [],
         roles,
         priorities,
-        gis: {
-          configured: !!process.env.ARCGIS_LAYER_URL,
-          pending: Number(
-            (
-              await db.get(
-                "SELECT COUNT(*) AS n FROM gis_sync WHERE status<>'synced'",
-              )
-            ).n,
-          ),
-        },
       };
     }),
   );
@@ -339,7 +346,7 @@ export function createApp(db) {
       list = list.filter((r) => r.created_at.slice(0, 10) <= req.query.to);
     return list;
   };
-  registerPlanning(app, db, { route, allow, audit, fail });
+  const planningModule = registerPlanning(app, db, { route, allow, audit, fail });
   registerField(app, db, { route, fail });
   registerSectorControl(app, db, { route, allow });
   registerInventory(app, db, { route, allow, audit, fail, now });
@@ -370,7 +377,7 @@ export function createApp(db) {
         .map((o) => ({ ...o, distance: distance(point, o) }))
         .filter(
           (o) =>
-            o.distance <= settings.duplicate_radius && o.status !== "CANCELADA",
+            o.distance <= settings.duplicate_radius && !["CANCELADA", "RECUSADA"].includes(o.status),
         )
         .sort((a, b) => a.distance - b.distance);
     }),
@@ -403,7 +410,7 @@ export function createApp(db) {
         .map(unpack)
         .filter(
           (o) =>
-            o.status !== "CANCELADA" &&
+            !["CANCELADA", "RECUSADA"].includes(o.status) &&
             distance(data, o) <= settings.duplicate_radius,
         );
       const active = nearby.filter((o) => o.status !== "CONCLUIDA");
@@ -449,7 +456,7 @@ export function createApp(db) {
         ],
       );
       await audit(req, "occurrence", id, "Ocorrência registrada", null, extra);
-      await sync(id);
+
       if (data.request_id)
         await db.run("INSERT INTO client_requests VALUES(?,?,?,?)", [
           req.user.id,
@@ -479,9 +486,9 @@ export function createApp(db) {
       };
     }),
   );
-  const classify = route(async (req) => {
-    const old = await entity("occurrences", req.params.id);
-    if (!["IDENTIFICADA", "EM_TRIAGEM"].includes(old.status))
+  const classifyOccurrence = async (req, id, payload) => {
+    const old = await entity("occurrences", id);
+    if (!canTransition(old.status, status.EM_TRIAGEM, "occurrence"))
       fail(409, "Só é possível classificar antes da programação.");
     const data = z
       .object({
@@ -490,7 +497,7 @@ export function createApp(db) {
         category_id: text,
         subcategory: text,
       })
-      .parse(req.body);
+      .parse(payload);
     const cat = await catalog(data.category_id, "categorias");
     await catalog(data.sector_id, "setores");
     if (!cat.subcategories.includes(data.subcategory))
@@ -501,7 +508,7 @@ export function createApp(db) {
         data.category_id,
         data.sector_id,
         data.priority,
-        "EM_TRIAGEM",
+        status.EM_TRIAGEM,
         now(),
         JSON.stringify({ ...old, ...data }),
         old.id,
@@ -515,19 +522,39 @@ export function createApp(db) {
       old,
       data,
     );
-    await sync(old.id);
+
     return entity("occurrences", old.id);
-  }, true);
+  };
+  const classify = route(req => classifyOccurrence(req, req.params.id, req.body), true);
   app.post("/api/ocorrencias/:id/classificar", allow("classify"), classify);
   app.patch("/api/ocorrencias/:id", allow("classify"), classify);
   app.post("/api/ocorrencias/:id/encaminhar", allow("classify"), classify);
+  app.post("/api/ocorrencias/:id/recusar", allow("classify"), route(async req => {
+    const old = await entity("occurrences", req.params.id);
+    if (!canTransition(old.status, status.RECUSADA, "occurrence")) fail(409, "Só é possível recusar uma demanda antes da programação.");
+    const { reason } = z.object({ reason: text }).parse(req.body);
+    const links = await db.all("SELECT order_id FROM order_occurrences WHERE occurrence_id=?", [old.id]);
+    if (links.length) fail(409, "Esta demanda já possui ordem de serviço. Revise a ordem antes de alterar o atendimento.");
+    const stamp = now();
+    const data = { ...old, status: status.RECUSADA, updated_at: stamp, rejection_reason: reason, rejected_at: stamp, rejected_by: req.user.name };
+    await db.run("UPDATE occurrences SET status=?,updated_at=?,data=? WHERE id=?", [status.RECUSADA, stamp, JSON.stringify(data), old.id]);
+    await audit(req, "occurrence", old.id, "Demanda recusada na triagem", old, data);
+
+    return entity("occurrences", old.id);
+  }, true));
   app.get(
     "/api/ordens-servico",
     route(async (req) => {
       const rows = await db.all(
         "SELECT * FROM orders ORDER BY created_at DESC",
       );
-      return rows.map(unpack).filter((o) => canAccessOrder(req.user, o));
+      const links = await db.all("SELECT order_id,occurrence_id FROM order_occurrences");
+      const byOrder = new Map();
+      for (const link of links) {
+        if (!byOrder.has(link.order_id)) byOrder.set(link.order_id, []);
+        byOrder.get(link.order_id).push(link.occurrence_id);
+      }
+      return rows.map(unpack).filter((o) => canAccessOrder(req.user, o)).map(o => ({ ...o, occurrence_ids: byOrder.get(o.id) || [] }));
     }),
   );
   app.post(
@@ -543,10 +570,16 @@ export function createApp(db) {
           scheduled_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           responsible: text,
           notes: z.string().max(3000).default(""),
+          triage: z.object({ priority: z.enum(priorities), sector_id: text, category_id: text, subcategory: text }).optional(),
+          new_plan: z.object({ objective: z.string().trim().min(5).max(3000), responsible: z.string().trim().min(1).max(200) }).optional(),
         })
         .parse(req.body);
       if (new Set(data.occurrence_ids).size !== data.occurrence_ids.length)
         fail(400, "Ocorrências repetidas.");
+      if (data.triage) {
+        if (data.occurrence_ids.length !== 1) fail(400, "A triagem integrada deve tratar uma ocorrência por vez.");
+        await classifyOccurrence(req, data.occurrence_ids[0], data.triage);
+      }
       const occurrences = [];
       for (const id of data.occurrence_ids) {
         const o = await entity("occurrences", id);
@@ -572,6 +605,12 @@ export function createApp(db) {
           operator.team_id !== data.team_id
         )
           fail(400, "Selecione um operador da equipe escolhida.");
+      }
+      if (data.new_plan) {
+        if (data.plan_id) fail(400, "Escolha um plano existente ou crie um novo plano.");
+        const createdPlan = await planningModule.createPlan(req, { occurrence_ids: data.occurrence_ids, objective: data.new_plan.objective, responsible: data.new_plan.responsible, scheduled_at: data.scheduled_at });
+        data.plan_id = createdPlan.id;
+        delete data.new_plan;
       }
       data.issued_by = req.user.name;
       data.issued_by_id = req.user.id;
@@ -675,7 +714,7 @@ export function createApp(db) {
       allow(permission),
       route(async (req) => {
         const old = await accessOrder(req, req.params.id);
-        if (!from.includes(old.status))
+        if (!from.includes(old.status) || !canTransition(old.status, to, "order"))
           fail(409, "Ação incompatível com o status atual.");
         const data = { ...old };
         const stamp = now();
@@ -964,6 +1003,7 @@ export function createApp(db) {
               "DEVOLVIDA",
               "CONCLUIDA",
               "CANCELADA",
+              "RECUSADA",
             ].includes(o.status)
           )
             fail(409, "Registro encerrado para anexos.");
@@ -1222,7 +1262,7 @@ export function createApp(db) {
       const stockCosts = (await db.all("SELECT * FROM inventory_movements WHERE type='saida' AND order_id IS NOT NULL")).filter((item) => orders.some((o) => o.id === item.order_id));
       const costByStage = Object.entries(stockCosts.reduce((sum, item) => { sum[item.stage] = (sum[item.stage] || 0) + item.quantity * item.unit_cost; return sum; }, {})).map(([stage, value]) => ({ stage, value }));
       const active = occurrences.filter(
-        (o) => !["CONCLUIDA", "CANCELADA"].includes(o.status),
+        (o) => !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(o.status),
       );
       return {
         total: occurrences.length,
@@ -1234,7 +1274,7 @@ export function createApp(db) {
         completed: orders.filter((o) => o.status === "CONCLUIDA").length,
         overdue: orders.filter(
           (o) =>
-            !["CONCLUIDA", "CANCELADA"].includes(o.status) && o.due_at < now(),
+            !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(o.status) && o.due_at < now(),
         ).length,
         cost: mats.reduce((s, m) => s + m.quantity * m.unit_cost, 0),
         actual_cost: stockCosts.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0),
@@ -1256,14 +1296,6 @@ export function createApp(db) {
         occurrences,
       };
     }),
-  );
-  app.get(
-    "/api/gis/status",
-    route(() =>
-      db.all(
-        "SELECT g.*,o.code FROM gis_sync g JOIN occurrences o ON o.id=g.occurrence_id ORDER BY g.updated_at DESC",
-      ),
-    ),
   );
   app.use("/api", (req, res) =>
     res.status(404).json({ error: "Rota não encontrada." }),

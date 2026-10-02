@@ -1,6 +1,6 @@
 # Urbana · Gestão de Manutenção Municipal
 
-Implementação do MVP de manutenção viária da especificação fornecida. React + TypeScript, API Express, SQLite local ou PostgreSQL/PostGIS, autenticação por sessão e integração ArcGIS por fila persistente.
+Implementação do MVP de manutenção viária da especificação fornecida. React + TypeScript, API Express, SQLite local ou PostgreSQL/PostGIS, autenticação por sessão.
 
 ## Executar
 
@@ -33,7 +33,7 @@ Essas contas são exclusivamente para demonstração local. `ADMIN_PASSWORD` sub
 - Versão de campo em `/campo`, registro com câmera/GPS, rascunhos locais, tarefas por equipe/operador, devolução justificada e análise pelo gestor.
 - Painel com contagens reais, prioridades, SLA, distribuição territorial e custos dos materiais consumidos.
 - Ocorrências com categoria configurável, subcategoria, GPS, ajuste no mapa, coordenadas manuais, endereço, bairro, origem, prioridade e foto.
-- Geocodificação reversa ArcGIS com preenchimento manual quando indisponível.
+- Localização por GPS ou mapa e preenchimento manual de endereço e bairro.
 - Verificação de duplicidade por distância, vínculo de solicitações e confirmação de novo registro; identificação de reincidência próxima a registros concluídos.
 - Triagem, classificação e encaminhamento; geração de OS após triagem, equipe compatível com o setor, responsável e programação.
 - Execução: deslocamento, chegada georreferenciada, foto antes, material e equipamento, foto depois, relato, envio à fiscalização e validação.
@@ -41,7 +41,7 @@ Essas contas são exclusivamente para demonstração local. `ADMIN_PASSWORD` sub
 - Evidências JPG, PNG, WebP, PDF e MP4, limitadas a 15 MB, com usuário, data, etapa e coordenadas. Anexos são servidos apenas após autenticação.
 - Cadastros de categorias e SLA, secretarias, departamentos, setores, equipes, usuários, materiais e equipamentos.
 - Filtros de texto, status, prioridade, categoria, bairro no mapa e intervalo de identificação; exportação CSV dos registros filtrados.
-- Histórico detalhado e auditoria administrativa. Fila GIS atualizada na mesma transação da ocorrência.
+- Histórico detalhado e auditoria administrativa.
 - Layout responsivo para desktop e celular, com navegação e formulários operacionais.
 
 ## Validar o fluxo
@@ -66,27 +66,9 @@ SQLite e PostgreSQL são alternativas de execução. Alterar `DATABASE_URL` não
 
 Faça backup consistente do banco e da pasta de anexos. No modo local, pare o serviço antes de copiar `data/` ou use um procedimento de backup SQLite que inclua WAL. Não remova a pasta de dados para atualizar o código.
 
-## ArcGIS
+## Mapa e localização
 
-Configure `ARCGIS_LAYER_URL` com uma camada `/FeatureServer/0` e `ARCGIS_TOKEN` com credencial autorizada a consultar/adicionar/atualizar. A camada precisa conter:
-
-| Campo | Tipo |
-| --- | --- |
-| OBJECTID | Object ID |
-| occurrence_id | String, 36 ou mais caracteres, preferencialmente único |
-| code | String |
-| category_id | String |
-| status | String |
-| priority | String |
-| neighborhood | String |
-| sector_id | String |
-| updated_at | Date |
-
-A cada minuto, até 20 registros pendentes são consultados pelo identificador municipal e enviados por `applyEdits`. Consultar antes de adicionar evita duplicação em uma repetição após falha de rede. Erros permanecem na fila; as tentativas seguintes retomam a sincronização. Tokens ficam somente no servidor. O processo municipal continua disponível sem credenciais GIS.
-
-O mapa-base é Esri World Street Map, exibido pelo Leaflet. O carregamento desse mapa e a geocodificação exigem acesso externo; ocorrrências e formulários permanecem utilizáveis sem eles. A operação e o armazenamento de resultados geocodificados devem seguir o contrato ArcGIS do município. A sincronização foi testada com respostas simuladas; depende de homologação com a camada real e suas permissões.
-
-Referências técnicas: [Leaflet](https://leafletjs.com/reference), [ArcGIS applyEdits](https://developers.arcgis.com/rest/services-reference/enterprise/apply-edits-feature-service-layer/), [Node SQLite](https://nodejs.org/api/sqlite.html).
+O mapa-base usa OpenStreetMap pelo Leaflet, com atribuição visível. Consulte a [política de uso dos mapas](https://operations.osmfoundation.org/policies/tiles/). O cadastro aceita GPS, seleção no mapa ou coordenadas e endereço manual. O mapa-base requer internet; ocorrências e formulários continuam utilizáveis se ele estiver indisponível.
 
 ## Testes
 
@@ -97,7 +79,7 @@ npm.cmd run build
 npm.cmd run test:ui
 ```
 
-Os testes da API e do navegador usam bancos temporários isolados. Cobrem autenticação, autorização, origem das requisições, validação, duplicidade, ciclo de execução, fotos obrigatórias, consumo, auditoria, propagação para mapa, atomicidade e repetição GIS. O teste de navegador inicia seu próprio servidor com a versão compilada, verifica desktop e celular, cadastro, triagem, geração de OS e navegação, e captura telas em `test-results/`.
+Os testes da API e do navegador usam bancos temporários isolados. Cobrem autenticação, autorização, origem das requisições, validação, duplicidade, ciclo de execução, fotos obrigatórias, consumo, auditoria, propagação para mapa, atomicidade. O teste de navegador inicia seu próprio servidor com a versão compilada, verifica desktop e celular, cadastro, triagem, geração de OS e navegação, e captura telas em `test-results/`.
 
 ## Escopo e evolução
 
@@ -105,7 +87,7 @@ Ativos e planos preventivos têm tabelas reservadas, mas não possuem telas ou g
 
 Anexos usam disco local; o adaptador S3 ainda precisa ser implementado antes de implantação distribuída. Equipes possuem responsável e quantidade de integrantes; usuários de campo têm vínculo com uma equipe. Não há gestão de múltiplas equipes por usuário. A API aceita agrupar várias ocorrências em uma OS do mesmo setor; a interface cria uma OS por vez a partir da ocorrência. Novas intervenções posteriores podem reutilizar a OS pela reabertura.
 
-O processo utiliza uma conexão e fila serializada para consistência no MVP. Escala horizontal, rotação de credenciais, monitoramento, migrações incrementais futuras e homologação PostgreSQL/ArcGIS devem preceder uma implantação municipal de produção.
+O processo utiliza uma conexão e fila serializada para consistência no MVP. Escala horizontal, rotação de credenciais, monitoramento, migrações incrementais futuras e homologação PostgreSQL devem preceder uma implantação municipal de produção.
 
 Mais detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) e [docs/API.md](docs/API.md).
 
@@ -137,3 +119,7 @@ A fila é atualizada a cada 15 segundos enquanto a tela está visível. Web Push
 Rascunhos persistem no navegador/aparelho onde foram criados. Limpar os dados do navegador os remove. A abertura inicial/login e as operações no servidor exigem rede; a tela offline orienta a reconectar. Isso não é sincronização offline automática. Fotos antes/depois selecionadas também ficam guardadas localmente para reenvio, e o relato de conclusão fica em rascunho.
 
 Testes adicionais: `npm.cmd run test:field` valida registro móvel, recuperação de rascunho, reenvio de foto, distribuição individual, execução e aprovação pelo gestor em banco isolado. Os testes da API cobrem permissões, reenvios, devolução e fila de push com serviço simulado.
+
+## Quadro de equipes e navegação
+
+O Kanban permite arrastar cartões entre etapas, ordenar a fila de forma compartilhada e controlar limites de trabalho, mantendo permissões e evidências do fluxo operacional. Busca e equipe ficam na barra principal; filtros, carga e regras são recolhíveis. O menu lateral agrupa Ocorrências e Operações. Consulte [o guia do quadro](docs/KANBAN.md).

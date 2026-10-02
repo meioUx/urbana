@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { openDatabase } from "./db.js";
 import { seed } from "./seed.js";
 import { createApp } from "./app.js";
-import { synchronize } from "./gis.js";
 import express from "express";
 
 if (existsSync(".env")) process.loadEnvFile(".env");
@@ -30,14 +29,6 @@ const port = Number(process.env.PORT || 3000),
 const server = app.listen(port, host, () =>
   console.log(`Urbana disponível em http://${host}:${port}`),
 );
-const timer = setInterval(
-  () =>
-    app.locals
-      .enqueue(() => synchronize(db))
-      .catch((e) => console.error("GIS:", e.message)),
-  60000,
-);
-timer.unref();
 let sendingPush = false;
 const pushTimer = setInterval(async () => {
   if (sendingPush) return;
@@ -52,7 +43,6 @@ const pushTimer = setInterval(async () => {
 }, 15000);
 pushTimer.unref();
 process.on("SIGTERM", () => {
-  clearInterval(timer);
   clearInterval(pushTimer);
   server.close(async () => {
     await db.close();

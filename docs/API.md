@@ -2,6 +2,23 @@
 
 Base `/api`. Corpos JSON, exceto anexos multipart. Sessão pelo cookie `urban_session` retornado no login. Erros: `{ "error": "mensagem", "details": ... }`. Códigos usuais: 400 validação, 401 sessão, 403 permissão, 404 registro ausente, 409 conflito, 429 limite de login, 500 falha interna.
 
+## Fluxo canônico
+
+Os estados e transições estão centralizados em `server/domain/workflow.js`. `IDENTIFICADA`, `EM_TRIAGEM` e `RECUSADA` são decisões da ocorrência. `PROGRAMADA`, `EM_DESLOCAMENTO`, `EM_EXECUCAO`, `AGUARDANDO_VALIDACAO`, `DEVOLVIDA`, `CONCLUIDA` e `CANCELADA` pertencem à OS; ocorrências vinculadas refletem o status da OS. Uma transição inválida retorna conflito e não altera registros.
+
+```mermaid
+flowchart LR
+  IDENTIFICADA --> EM_TRIAGEM --> PROGRAMADA --> EM_DESLOCAMENTO --> EM_EXECUCAO --> AGUARDANDO_VALIDACAO --> CONCLUIDA
+  IDENTIFICADA --> RECUSADA
+  EM_TRIAGEM --> RECUSADA
+  PROGRAMADA --> EM_EXECUCAO
+  PROGRAMADA --> DEVOLVIDA --> PROGRAMADA
+  EM_DESLOCAMENTO --> DEVOLVIDA
+  EM_EXECUCAO --> DEVOLVIDA
+  AGUARDANDO_VALIDACAO --> EM_EXECUCAO
+  CONCLUIDA --> EM_EXECUCAO
+```
+
 | Método | Rota | Função |
 | --- | --- | --- |
 | POST | /auth/login | `{email,password}` |
@@ -12,6 +29,7 @@ Base `/api`. Corpos JSON, exceto anexos multipart. Sessão pelo cookie `urban_se
 | GET / PATCH | /ocorrencias/:id | Detalhe / classificar em triagem |
 | GET | /ocorrencias/proximas?lat=&lng= | Registros no raio configurado |
 | POST | /ocorrencias/:id/classificar | Categoria, subcategoria, setor, prioridade |
+| POST | /ocorrencias/:id/recusar | `{reason}` obrigatório; apenas antes de programar, com permissão de triagem; registra `RECUSADA`, motivo, usuário, data, auditoria |
 | POST | /ocorrencias/:id/encaminhar | Mesmo contrato da classificação |
 | POST | /ocorrencias/:id/anexos | Arquivo da ocorrência |
 | GET / POST | /ordens-servico | Listar / programar |
@@ -33,7 +51,6 @@ Base `/api`. Corpos JSON, exceto anexos multipart. Sessão pelo cookie `urban_se
 | GET / POST | /users | Administrador: listar/criar usuário |
 | PATCH | /settings | `{municipality,duplicate_radius}` |
 | GET | /auditoria | Administrador: últimos 300 eventos |
-| GET | /gis/status | Estado das sincronizações |
 
 ## Cadastro de ocorrência
 
@@ -81,7 +98,7 @@ Multipart com `file`, `stage`, `lat` e `lng`. Etapas: `registro`, `antes`, `dura
 ## Planejamento territorial
 
 - `GET /api/planejamento`: grupos de ocorrências abertas por rua/bairro, prioridade sugerida e planos persistidos com progresso e OS relacionadas. Ordens de outras equipes permanecem ocultas para usuários de campo.
-- `POST /api/planos-acao` (Administrador/Gestor): `{occurrence_ids: [id, id], objective, responsible, scheduled_at: "AAAA-MM-DD"}`. Exige 2–100 ocorrências abertas da mesma rua/bairro, sem vínculo prévio a plano; cria plano e auditoria em transação.
+- `POST /api/planos-acao` (Administrador/Gestor): `{occurrence_ids: [id], objective, responsible, scheduled_at: "AAAA-MM-DD"}`. Aceita 1–100 ocorrências abertas da mesma rua/bairro e setor, sem vínculo prévio a plano; cria plano e auditoria em transação.
 - `POST /api/ordens-servico` aceita `plan_id` opcional e valida pertencimento. A vinculação também é inferida dos registros, inclusive na criação individual de OS. Não permite misturar ocorrências de planos diferentes ou planejadas com não planejadas na mesma OS.
 
 ## Operação de campo
@@ -97,3 +114,12 @@ Multipart com `file`, `stage`, `lat` e `lng`. Etapas: `registro`, `antes`, `dura
 - `GET /healthz`: verificação de disponibilidade do processo, sem autenticação.
 
 `/bootstrap` inclui `operators` (id/nome/equipe) apenas para perfis com permissão de programação. `validar`/`reabrir` também são permitidos a Gestor; continuam bloqueados para Equipe de Campo.
+
+## Kanban compartilhado
+
+- `GET /api/kanban`: retorna `{revision, limits, order}`; o bootstrap inclui a mesma configuração.
+- `PATCH /api/kanban`: gestores/administradores enviam `{revision, limits}` com limites inteiros de 0 a 999 para etapas abertas. Zero desativa o limite.
+- `POST /api/kanban/ordem`: triagem, gestão e fiscalização enviam `{revision, status, keys}` com todos os cartões da etapa em ordem, no formato `occurrence:id` ou `order:id`. Duplicados, conjuntos incompletos e revisões desatualizadas retornam 409.
+- Movimentações usam as rotas operacionais existentes com `kanban_expected_status`. O servidor valida a etapa esperada, os requisitos da ação e os limites compartilhados antes do commit.
+
+Os limites também se aplicam às outras telas. Consulte [uso do quadro](KANBAN.md).

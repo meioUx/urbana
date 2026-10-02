@@ -1,4 +1,9 @@
-import AddressSearch from "./AddressSearch";
+import PlanningPanel, { PlanningTeamCapacity } from "./PlanningPanel";
+import WorkflowGuide from "./WorkflowGuide";
+import DispatchContext from "./DispatchContext";
+import TeamKanban from "./TeamKanban";
+import SidebarNav from "./SidebarNav";
+import OperationsDashboard from "./OperationsDashboard";
 import Operator from "./Operator";
 import SectorControl from "./SectorControl";
 import InventoryPanel from "./InventoryPanel";
@@ -6,6 +11,7 @@ import InvoicePanel from "./InvoicePanel";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import L from "leaflet";
+import { heatLayer } from "./heat-layer";
 import {
   Activity,
   ArrowDownToLine,
@@ -49,12 +55,12 @@ type Boot = {
   settings: any;
   roles: string[];
   priorities: string[];
-  gis: any;
   operators: Row[];
+  kanban: { revision: number; limits: Record<string, number>; order: Record<string, string[]> };
 };
 const labels: Record<string, string> = {
   IDENTIFICADA: "Identificada",
-  EM_TRIAGEM: "Em triagem",
+  EM_TRIAGEM: "Pronta para programar",
   PROGRAMADA: "Programada",
   EM_DESLOCAMENTO: "Em deslocamento",
   EM_EXECUCAO: "Em execução",
@@ -62,6 +68,7 @@ const labels: Record<string, string> = {
   DEVOLVIDA: "Devolvida à gestão",
   CONCLUIDA: "Concluída",
   CANCELADA: "Cancelada",
+  RECUSADA: "Recusada",
 };
 const colors: Record<string, string> = {
   IDENTIFICADA: "#db5350",
@@ -73,6 +80,7 @@ const colors: Record<string, string> = {
   DEVOLVIDA: "#a46a1c",
   CONCLUIDA: "#26896b",
   CANCELADA: "#8a9295",
+  RECUSADA: "#b45656",
 };
 const fmt = (d: string) =>
   d
@@ -103,12 +111,13 @@ async function api(path: string, method = "GET", body?: any) {
         body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
     });
   } catch (error: any) {
-    if (error?.name === "AbortError") throw new Error("A resposta demorou demais. Tente novamente.");
-    throw new Error("Não foi possível comunicar com o servidor. Verifique a conexão e tente novamente.");
+    if (error?.name === "AbortError") throw new Error(method === "GET" ? "A resposta demorou demais. Tente atualizar novamente." : "O servidor não confirmou a operação a tempo. Confira o registro antes de repetir o envio.");
+    throw new Error(method === "GET" ? "Não foi possível comunicar com o servidor. Verifique a conexão e tente novamente." : "A conexão foi interrompida. Confira se a operação foi registrada antes de repetir o envio.");
   } finally {
     window.clearTimeout(timeout);
   }
-  const data = await res.json();
+  const data = await res.json().catch(() => ({ error: "O servidor retornou uma resposta inesperada. Confira o registro e atualize a página." }));
+  if (res.ok && data.error) throw new Error(data.error);
   if (!res.ok)
     throw Object.assign(new Error(data.error), {
       status: res.status,
@@ -234,12 +243,14 @@ function GeoMap({
   pick,
   point,
   large = false,
+  heatmap = false,
 }: {
   rows: Row[];
   onSelect?: (r: Row) => void;
   pick?: (lat: number, lng: number) => void;
   point?: [number, number];
   large?: boolean;
+  heatmap?: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null),
     map = useRef<L.Map | null>(null),
@@ -249,7 +260,13 @@ function GeoMap({
   handler.current = pick;
   select.current = onSelect;
   const [mapError, setMapError] = useState(false);
-  const searchMarker = useRef<L.CircleMarker | null>(null);
+  const [mapMode, setMapMode] = useState("points");
+  useEffect(() => {
+    if (!map.current || mapMode !== "heat" || !heatmap) return;
+    const layer = heatLayer(rows.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng)).map(r => [r.lat, r.lng] as [number, number]));
+    layer.addTo(map.current);
+    return () => { layer.remove(); };
+  }, [rows, mapMode, heatmap]);
   useEffect(() => {
     if (!element.current) return;
     const m = L.map(element.current, {
@@ -261,9 +278,9 @@ function GeoMap({
     map.current = m;
     L.control.zoom({ position: "bottomright" }).addTo(m);
     const tiles = L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+      "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       {
-        attribution: "Tiles © Esri — Sources: Esri, HERE, Garmin, USGS",
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19,
       },
     ).addTo(m);
@@ -285,6 +302,7 @@ function GeoMap({
     if (!g) return;
     g.clearLayers();
     rows.forEach((r) => {
+      if (mapMode === "heat" && heatmap) return;
       const marker = L.circleMarker([r.lat, r.lng], {
         radius: 8,
         color: "#fff",
@@ -307,18 +325,10 @@ function GeoMap({
       }).addTo(g);
       map.current?.setView(point, 16);
     }
-  }, [rows, point?.[0], point?.[1]]);
+  }, [rows, point?.[0], point?.[1], mapMode, heatmap]);
   return (
     <>
-      {!pick && <AddressSearch onSelect={r => {
-        searchMarker.current?.remove();
-        if (map.current) {
-          map.current.setView([r.lat, r.lng], 17);
-          searchMarker.current = L.circleMarker([r.lat, r.lng], { radius: 10, color: "#175aab", fillOpacity: 0.8 }).addTo(map.current);
-          const label = document.createElement("span"); label.textContent = r.address;
-          searchMarker.current.bindTooltip(label).openTooltip();
-        }
-      }} />}
+      {heatmap && <div className="heat-controls" role="group" aria-label="Visualização do mapa"><button type="button" className="button secondary" aria-pressed={mapMode === "points"} onClick={() => setMapMode("points")}>Pontos de ocorrências</button><button type="button" className="button secondary" aria-pressed={mapMode === "heat"} onClick={() => setMapMode("heat")}>Mapa de calor</button><span>{rows.length} ocorrências nos filtros atuais</span></div>}
     <div className={`map-wrap ${large ? "large" : ""}`}>
       <div className="map" ref={element} />
       {mapError && (
@@ -344,6 +354,7 @@ function GeoMap({
         <LocateFixed size={18} />
       </button>
     </div>
+    {heatmap && mapMode === "heat" && <div className="heat-legend" role="status"><span className="heat-ramp"/><span>Menor → maior concentração de ocorrências</span><small>Cada ocorrência tem o mesmo peso. A concentração varia com o zoom e respeita os filtros. Selecione um registro na lista ou volte aos pontos para abrir o detalhe.</small></div>}
     </>
   );
 }
@@ -374,7 +385,9 @@ function App() {
     [adminTab, setAdminTab] = useState("categorias"),
     [users, setUsers] = useState<Row[]>([]),
     [audit, setAudit] = useState<Row[]>([]),
-    [gis, setGis] = useState<Row[]>([]);
+    [syncError, setSyncError] = useState(""),
+    [lastSync, setLastSync] = useState<string>(""),
+    [syncing, setSyncing] = useState(false);
   const refresh = async () => {
     const b = await api("/bootstrap");
     if (b.user.role === "Equipe de Campo") {
@@ -393,15 +406,15 @@ function App() {
     setDashboard(d);
     setPlanning(p);
     if (b.user.role === "Administrador") {
-      const [u, a, g] = await Promise.all([
+      const [u, a] = await Promise.all([
         api("/users"),
         api("/auditoria"),
-        api("/gis/status"),
       ]);
       setUsers(u);
       setAudit(a);
-      setGis(g);
     }
+    setLastSync(new Date().toISOString());
+    setSyncError("");
   };
   useEffect(() => {
     refresh()
@@ -413,7 +426,7 @@ function App() {
   useEffect(() => {
     if (!boot || boot.user.role === "Equipe de Campo" || fieldMode) return;
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") refresh().catch(() => {});
+      if (document.visibilityState === "visible") refresh().catch((e) => setSyncError(e.status === 401 ? "Sua sessão expirou. Entre novamente para continuar." : "A atualização falhou. Os dados exibidos podem estar desatualizados."));
     }, 15000);
     return () => clearInterval(timer);
   }, [boot?.user.id, fieldMode]);
@@ -452,19 +465,20 @@ function App() {
     setError("");
     try {
       await fn();
-      await refresh();
       setToast(message);
+      try { await refresh(); } catch { setSyncError("A operação foi salva, mas a atualização falhou. Atualize os dados antes de continuar."); }
     } catch (e: any) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
   };
-  const openDetail = async (type: string, id: string) => {
+  const openDetail = async (type: string, id: string, initialTab = "overview") => {
     setError("");
     try {
       setDetail({
         type,
+        initialTab,
         ...(await api(
           `/${type === "order" ? "ordens-servico" : "ocorrencias"}/${id}`,
         )),
@@ -517,7 +531,7 @@ function App() {
       (!team || r.team_id === team) &&
       (!deadline ||
         (() => {
-          if (["CONCLUIDA", "CANCELADA"].includes(r.status)) return false;
+          if (["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(r.status)) return false;
           const remaining = Date.parse(r.due_at) - Date.now();
           if (deadline === "late") return remaining < 0;
           if (deadline === "soon")
@@ -602,13 +616,15 @@ function App() {
     ["map", "Mapa territorial", MapIcon],
     ["occurrences", "Ocorrências", MapPin],
     ["triagem", "Triagem", Filter],
+    ["kanban", "Kanban de equipes", Layers3],
     ["planning", "Planejamento", Layers3],
     ["orders", "Ordens de serviço", ClipboardList],
     ["sector-control", "Controle do setor", FileText],
     ["review", "Análise de campo", ShieldCheck],
     ["field", "Operação de campo", HardHat],
     ["teams", "Equipes", Users],
-    ["materials", "Materiais e equipamentos", Package],
+    ["materials", "Materiais", Package],
+    ["equipment", "Equipamentos", Truck],
     ...(can("admin")
       ? [
           ["admin", "Administração", Settings2] as [
@@ -773,7 +789,7 @@ function App() {
               onClick={() => openDetail("occurrence", r.id)}
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === "Enter") openDetail("occurrence", r.id);
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail("occurrence", r.id); }
               }}
             >
               <td>
@@ -824,22 +840,8 @@ function App() {
             urbana<small>GESTÃO MUNICIPAL</small>
           </span>
         </a>
-        <p className="nav-caption">OPERAÇÃO</p>
-        <nav>
-          {nav.map(([id, label, Icon]) => (
-            <button
-              key={id}
-              className={page === id ? "nav-item active" : "nav-item"}
-              onClick={() => changePage(id)}
-            >
-              <Icon size={19} />
-              <span>{label}</span>
-              {id === "triagem" && (
-                <b>{rows.filter((r) => r.status === "IDENTIFICADA").length}</b>
-              )}
-            </button>
-          ))}
-        </nav>
+        <p className="nav-caption">ÁREA DE TRABALHO</p>
+        <SidebarNav nav={nav} page={page} rows={rows} onNavigate={changePage}/>
         <div className="sidebar-bottom">
           <div className="connection">
             <span />
@@ -906,7 +908,7 @@ function App() {
           </div>
         </header>
         <main>
-          <div className="page-heading">
+          <div className={`page-heading ${page === "kanban" ? "kanban-heading" : ""}`}>
             <div>
               <p className="eyebrow">
                 {page === "dashboard"
@@ -919,6 +921,10 @@ function App() {
                   ? "Acompanhe o território e as frentes de trabalho."
                   : page === "map"
                     ? "Ocorrências e serviços no território municipal."
+                    : page === "kanban"
+                      ? "Organize o fluxo e acompanhe as entregas das equipes."
+                    : page === "planning"
+                      ? "Compare intervenções, escolha o escopo e programe as equipes."
                     : page === "orders"
                       ? "Programação, execução e validação dos serviços."
                       : page === "triagem"
@@ -928,19 +934,21 @@ function App() {
                           : page === "teams"
                             ? "Equipes e distribuição das frentes de trabalho."
                             : page === "materials"
-                              ? "Catálogo operacional e consumo registrado."
+                              ? "Estoque, consumo e cadastro de materiais."
+                            : page === "equipment"
+                              ? "Equipamentos disponíveis para as frentes de trabalho."
                               : "Registro e acompanhamento das demandas urbanas."}
               </p>
             </div>
             <div className="heading-actions">
-              {["occurrences", "orders", "map", "dashboard"].includes(page) && (
+              {["occurrences", "orders", "map"].includes(page) && (
                 <button className="button secondary" onClick={exportCsv}>
                   <ArrowDownToLine size={16} />
                   Exportar
                 </button>
               )}
               {can("create") &&
-                ["dashboard", "map", "occurrences", "triagem"].includes(
+                ["map", "occurrences", "triagem", "kanban"].includes(
                   page,
                 ) && (
                   <button
@@ -951,13 +959,13 @@ function App() {
                     Nova ocorrência
                   </button>
                 )}
-              {can("admin") && ["teams", "materials"].includes(page) && (
+              {can("admin") && ["teams", "materials", "equipment"].includes(page) && (
                 <button
                   className="button primary"
                   onClick={() =>
                     setModal({
                       type: "catalog",
-                      kind: page === "teams" ? "equipes" : "materiais",
+                      kind: page === "teams" ? "equipes" : page === "equipment" ? "equipamentos" : "materiais",
                     })
                   }
                 >
@@ -980,191 +988,11 @@ function App() {
               </button>
             </div>
           )}
-          {page === "dashboard" && dashboard && (
-            <>
-              <div className="metrics">
-                {[
-                  [
-                    MapPin,
-                    "Ocorrências abertas",
-                    dashboard.open,
-                    `${dashboard.emergency} emergenciais`,
-                    "red",
-                  ],
-                  [
-                    HardHat,
-                    "Em execução",
-                    dashboard.executing,
-                    "Frentes de trabalho ativas",
-                    "blue",
-                  ],
-                  [
-                    CheckCircle2,
-                    "Serviços concluídos",
-                    dashboard.completed,
-                    "Total de ordens validadas",
-                    "green",
-                  ],
-                  [
-                    Clock3,
-                    "SLA vencido",
-                    dashboard.overdue,
-                    `${dashboard.validation} aguardando validação`,
-                    "amber",
-                  ],
-                ].map(([Icon, label, value, sub, color]: any) => (
-                  <div className="metric" key={label}>
-                    <div className="metric-top">
-                      <span>{label}</span>
-                      <span className={`metric-icon ${color}`}>
-                        <Icon size={19} />
-                      </span>
-                    </div>
-                    <strong>{value.toString().padStart(2, "0")}</strong>
-                    <small>{sub}</small>
-                  </div>
-                ))}
-              </div>
-              <div className="dashboard-grid">
-                <section className="map-section">
-                  <div className="section-heading">
-                    <div>
-                      <h2>Panorama territorial</h2>
-                      <span>{rows.length} ocorrências no município</span>
-                    </div>
-                    <button
-                      className="text-button"
-                      onClick={() => changePage("map")}
-                    >
-                      Abrir mapa
-                      <ArrowRight size={15} />
-                    </button>
-                  </div>
-                  <GeoMap
-                    rows={rows}
-                    onSelect={(r) => openDetail("occurrence", r.id)}
-                  />
-                  <div className="legend">
-                    {[
-                      "IDENTIFICADA",
-                      "PROGRAMADA",
-                      "EM_EXECUCAO",
-                      "CONCLUIDA",
-                    ].map((s) => (
-                      <span key={s}>
-                        <i style={{ background: colors[s] }} />
-                        {labels[s]}
-                      </span>
-                    ))}
-                  </div>
-                </section>
-                <section className="attention">
-                  <div className="section-heading">
-                    <h2>Atenção prioritária</h2>
-                    <span className="count">
-                      {
-                        rows.filter(
-                          (r) =>
-                            ["Emergencial", "Alta"].includes(r.priority) &&
-                            !["CONCLUIDA", "CANCELADA"].includes(r.status),
-                        ).length
-                      }
-                    </span>
-                  </div>
-                  {rows
-                    .filter(
-                      (r) =>
-                        ["Emergencial", "Alta"].includes(r.priority) &&
-                        !["CONCLUIDA", "CANCELADA"].includes(r.status),
-                    )
-                    .slice(0, 4)
-                    .map((r) => (
-                      <button
-                        className="attention-item"
-                        key={r.id}
-                        onClick={() => openDetail("occurrence", r.id)}
-                      >
-                        <div>
-                          <Priority value={r.priority} />
-                          <small>{r.code}</small>
-                        </div>
-                        <strong>{r.address}</strong>
-                        <p>
-                          <MapPin size={13} />
-                          {r.neighborhood}
-                          <ChevronRight size={15} />
-                        </p>
-                      </button>
-                    ))}
-                  <button
-                    className="text-button all-demands"
-                    onClick={() => {
-                      changePage("occurrences");
-                      setPriority("Emergencial");
-                    }}
-                  >
-                    Ver demandas emergenciais
-                    <ArrowRight size={15} />
-                  </button>
-                </section>
-              </div>
-              <div className="section-heading recent">
-                <div>
-                  <h2>Ocorrências recentes</h2>
-                  <span>Últimas demandas registradas</span>
-                </div>
-                <button
-                  className="text-button"
-                  onClick={() => changePage("occurrences")}
-                >
-                  Ver todas
-                  <ArrowRight size={15} />
-                </button>
-              </div>
-              {occurrenceTable(rows.slice(0, 5), true)}
-              <div className="report-grid">
-                <section>
-                  <h2>Distribuição por bairro</h2>
-                  {dashboard.byNeighborhood
-                    .sort((a: any, b: any) => b.value - a.value)
-                    .map((b: any) => (
-                      <div className="bar-row" key={b.name}>
-                        <span>{b.name}</span>
-                        <div>
-                          <i
-                            style={{
-                              width: `${(b.value / dashboard.total) * 100}%`,
-                            }}
-                          />
-                        </div>
-                        <strong>{b.value}</strong>
-                      </div>
-                    ))}
-                </section>
-                <section>
-                  <h2>Consumo de materiais</h2>
-                  <strong className="cost">{money(dashboard.cost)}</strong>
-                  <p className="muted">
-                    Custo dos materiais registrados nas ordens de serviço.
-                  </p>
-                  {catalogs("materiais").map((m) => (
-                    <div className="consumption-line" key={m.id}>
-                      <span>{m.name}</span>
-                      <strong>
-                        {dashboard.materials
-                          .filter((x: any) => x.material_id === m.id)
-                          .reduce((s: number, x: any) => s + x.quantity, 0)
-                          .toLocaleString("pt-BR")}{" "}
-                        {m.unit}
-                      </strong>
-                    </div>
-                  ))}
-                </section>
-              </div>
-            </>
-          )}
+          {syncError && page !== "dashboard" && <div className="notice error" role="alert">{syncError}<button className="text-button" disabled={syncing} onClick={async () => { setSyncing(true); try { await refresh(); } catch (e: any) { setSyncError(e.message); } finally { setSyncing(false); } }}>Atualizar dados</button></div>}
+          {page === "dashboard" && dashboard && <OperationsDashboard rows={rows} orders={orders} boot={boot} lastSync={lastSync} syncError={syncError} syncing={syncing} onRefresh={async () => { setSyncing(true); try { await refresh(); } catch (e: any) { setSyncError(e.message); } finally { setSyncing(false); } }} />}
           {["occurrences", "triagem"].includes(page) && (
             <>
+              {page === "triagem" && <section className="demand-queue" aria-label="Filas de triagem"><p>Analise a demanda e depois escolha quando atender. Planejamento é opcional para comparar obras e agrupar demandas da mesma via.</p><div className="form-actions">{[["IDENTIFICADA", "A analisar"], ["EM_TRIAGEM", "Prontas para programar"], ["", "Todas da triagem"]].map(([value, title]) => <button key={value} type="button" className={`button ${status === value ? "primary" : "secondary"}`} aria-pressed={status === value} onClick={() => setStatus(value)}>{title} ({rows.filter(r => value ? r.status === value : ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)).length})</button>)}</div></section>}
               {filters}
               <div className="results-count">{filtered.length} ocorrências</div>
               {occurrenceTable(filtered)}
@@ -1177,6 +1005,8 @@ function App() {
                 <div>
                   <GeoMap
                     rows={filtered}
+
+                    heatmap
                     onSelect={(r) => openDetail("occurrence", r.id)}
                     large
                   />
@@ -1217,6 +1047,7 @@ function App() {
           {page === "sector-control" && (
             <SectorControl api={api} boot={boot} onOpen={openDetail} />
           )}
+          {page === "kanban" && <TeamKanban rows={rows} orders={orders} boot={boot} can={can} onOpen={openDetail} api={api} onRefresh={refresh} />}
           {page === "review" && (
             <div className="planning-page">
               <div className="notice">
@@ -1259,14 +1090,17 @@ function App() {
             </div>
           )}
           {page === "planning" && (
-            <Planning
+            <PlanningPanel
               planning={planning}
               boot={boot}
+              orders={orders}
+              api={api}
+              onRefresh={refresh}
               canSchedule={can("schedule")}
-              busy={false}
               onOpen={openDetail}
-              onCreate={(group: any) => setModal({ type: "plan", group })}
+              onOrders={() => changePage("orders")}
               onSchedule={(plan: any) => setModal({ type: "plan-order", plan })}
+              renderMap={(members: Row[]) => <GeoMap rows={members} onSelect={r => openDetail("occurrence", r.id)} point={members.length ? [members[0].lat, members[0].lng] : undefined} />}
             />
           )}
           {page === "orders" && (
@@ -1294,7 +1128,7 @@ function App() {
                         onClick={() => openDetail("order", o.id)}
                         tabIndex={0}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") openDetail("order", o.id);
+                          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail("order", o.id); }
                         }}
                       >
                         <td>
@@ -1369,7 +1203,7 @@ function App() {
                           orders.filter(
                             (o) =>
                               o.team_id === t.id &&
-                              !["CONCLUIDA", "CANCELADA"].includes(o.status),
+                              !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(o.status),
                           ).length
                         }
                       </strong>
@@ -1459,19 +1293,12 @@ function App() {
                   </tbody>
                 </table>
               </div>
+            </>
+          )}
+          {page === "equipment" && (
+            <>
               <div className="section-heading recent">
                 <h2>Equipamentos</h2>
-                {can("admin") && (
-                  <button
-                    className="button secondary"
-                    onClick={() =>
-                      setModal({ type: "catalog", kind: "equipamentos" })
-                    }
-                  >
-                    <Plus size={16} />
-                    Equipamento
-                  </button>
-                )}
               </div>
               <div className="equipment-list">
                 {catalogs("equipamentos").map((e) => (
@@ -1511,7 +1338,6 @@ function App() {
                   ["setores", "Setores"],
                   ["users", "Usuários"],
                   ["settings", "Configurações"],
-                  ["gis", "Integração GIS"],
                   ["audit", "Auditoria"],
                 ].map(([k, l]) => (
                   <button
@@ -1638,46 +1464,6 @@ function App() {
                   save={(data) => run(() => api("/settings", "PATCH", data))}
                 />
               )}{" "}
-              {adminTab === "gis" && (
-                <>
-                  <div className="notice">
-                    <Layers3 size={20} />
-                    <span>
-                      {boot.gis.configured
-                        ? "ArcGIS configurado. Sincronização automática a cada minuto."
-                        : "ArcGIS não configurado. Os registros estão preservados na fila de sincronização."}
-                    </span>
-                  </div>
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Ocorrência</th>
-                          <th>Sincronização</th>
-                          <th>Tentativas</th>
-                          <th>Último erro</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {gis.map((g) => (
-                          <tr key={g.occurrence_id}>
-                            <td>{g.code}</td>
-                            <td>
-                              {g.status === "pending"
-                                ? "Pendente"
-                                : g.status === "synced"
-                                  ? "Sincronizada"
-                                  : "Erro"}
-                            </td>
-                            <td>{g.attempts}</td>
-                            <td>{g.error || "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
               {adminTab === "audit" && (
                 <div className="table-scroll">
                   <table>
@@ -1721,28 +1507,17 @@ function App() {
           {toast}
         </div>
       )}
-      {modal?.type === "plan" && (
-        <PlanForm
-          group={modal.group}
-          onClose={() => setModal(null)}
-          onSave={async (data: any) => {
-            await api("/planos-acao", "POST", data);
-            await refresh();
-            setModal(null);
-            setToast("Plano de ação criado.");
-          }}
-        />
-      )}
       {modal?.type === "plan-order" && (
         <PlanOrderForm
           plan={modal.plan}
           boot={boot}
+          orders={orders}
           onClose={() => setModal(null)}
           onSave={async (data: any) => {
             await api("/ordens-servico", "POST", data);
-            await refresh();
             setModal(null);
             setToast("Ordem de serviço vinculada ao plano.");
+            try { await refresh(); } catch { setSyncError("A ordem foi salva, mas não foi possível atualizar o planejamento. Atualize os dados antes de continuar."); }
           }}
         />
       )}
@@ -1767,13 +1542,13 @@ function App() {
                 );
               }
             }
-            await refresh();
             setModal(null);
             setToast(
               result.linked
                 ? "Solicitação vinculada."
                 : "Ocorrência registrada.",
             );
+            try { await refresh(); } catch { setSyncError("A ocorrência foi registrada, mas a atualização falhou. Atualize os dados antes de continuar."); }
             await openDetail("occurrence", result.id);
           }}
         />
@@ -1817,8 +1592,9 @@ function App() {
           onClose={() => setDetail(null)}
           onOpen={openDetail}
           onChange={async () => {
+            const updated = await api(`/${detail.type === "order" ? "ordens-servico" : "ocorrencias"}/${detail.id}`);
+            setDetail({ type: detail.type, ...updated });
             await refresh();
-            await openDetail(detail.type, detail.id);
           }}
         />
       )}
@@ -1830,276 +1606,9 @@ function App() {
     </div>
   );
 }
-function Planning({
-  planning,
-  boot,
-  canSchedule,
-  busy,
-  onOpen,
-  onCreate,
-  onSchedule,
-}: any) {
-  const [query, setQuery] = useState("");
-  const groups = planning.groups.filter((g: any) =>
-    `${g.street} ${g.neighborhood}`
-      .toLocaleLowerCase("pt-BR")
-      .includes(query.toLocaleLowerCase("pt-BR")),
-  );
-  return (
-    <div className="planning-page">
-      <div className="notice">
-        <Layers3 size={22} />
-        <span>
-          <strong>Concentração de ocorrências por rua</strong>
-          <br />
-          Duas ou mais ocorrências abertas na mesma rua e bairro elevam a
-          prioridade do grupo para Alta. Emergências vêm primeiro; depois,
-          quantidade de ocorrências e antiguidade. Confira os endereços antes de
-          criar o plano.
-        </span>
-      </div>
-      <div className="search">
-        <Search size={17} />
-        <input
-          aria-label="Buscar rua no planejamento"
-          placeholder="Buscar rua ou bairro..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
-      <h2>Ruas prioritárias</h2>
-      <div className="team-grid">
-        {groups.map((g: any, index: number) => {
-          const available = g.occurrences.filter((o: any) => !o.plan_id);
-          return (
-            <article className="team-card" key={g.key}>
-              <div className="section-heading">
-                <span>
-                  #{index + 1} · {g.occurrences.length} abertas
-                </span>
-                <Priority value={g.priority} />
-              </div>
-              <h2>{g.street}</h2>
-              <p>{g.neighborhood}</p>
-              <p>
-                {g.occurrences.length >= 2
-                  ? "Concentração de problemas: intervenção conjunta recomendada."
-                  : "Ocorrência isolada: mantenha o atendimento individual."}
-              </p>
-              <details>
-                <summary>Conferir ocorrências ({g.occurrences.length})</summary>
-                {g.occurrences.map((o: any) => (
-                  <button
-                    className="linked-row"
-                    key={o.id}
-                    onClick={() => onOpen("occurrence", o.id)}
-                  >
-                    <span>
-                      <strong>{o.code}</strong>
-                      <small>
-                        {o.address}
-                        {o.plan_id ? " · Em plano de ação" : ""}
-                      </small>
-                    </span>
-                    <Badge status={o.status} />
-                  </button>
-                ))}
-              </details>
-              {canSchedule && (
-                <button
-                  className="button primary"
-                  disabled={busy || available.length < 2}
-                  onClick={() => onCreate({ ...g, occurrences: available })}
-                >
-                  Criar plano de ação
-                </button>
-              )}
-              <small>
-                {available.length} disponíveis para um novo plano. Mínimo: 2.
-              </small>
-            </article>
-          );
-        })}
-      </div>
-      {!groups.length && (
-        <Empty text="Nenhuma rua com ocorrências abertas encontrada." />
-      )}
-      <h2>Planos de ação</h2>
-      <div className="team-grid">
-        {planning.plans.map((p: any) => (
-          <article className="team-card" key={p.id}>
-            <div className="section-heading">
-              <strong>{p.code}</strong>
-              <Priority value={p.priority} />
-            </div>
-            <h2>{p.street}</h2>
-            <p>
-              {p.neighborhood} · {p.status}
-            </p>
-            <p>{p.objective}</p>
-            <p>
-              <strong>Responsável:</strong> {p.responsible}
-              <br />
-              <strong>Data planejada:</strong>{" "}
-              {p.scheduled_at.split("-").reverse().join("/")}
-            </p>
-            <progress
-              aria-label={`Progresso do plano ${p.code}`}
-              value={p.completed}
-              max={p.occurrences.length}
-            />
-            <p>
-              {p.completed} de {p.occurrences.length} concluídas
-              {p.cancelled > 0 ? ` · ${p.cancelled} canceladas` : ""}
-            </p>
-            <details>
-              <summary>Ocorrências do plano</summary>
-              {p.occurrences.map((o: any) => (
-                <button
-                  className="linked-row"
-                  key={o.id}
-                  onClick={() => onOpen("occurrence", o.id)}
-                >
-                  <span>
-                    <strong>{o.code}</strong>
-                    <small>{o.address}</small>
-                  </span>
-                  <Badge status={o.status} />
-                </button>
-              ))}
-            </details>
-            {p.orders.map((o: any) => (
-              <button
-                key={o.id}
-                className="linked-row"
-                onClick={() => onOpen("order", o.id)}
-              >
-                <strong>{o.code}</strong>
-                <Badge status={o.status} />
-              </button>
-            ))}
-            {canSchedule && (
-              <button
-                className="button primary"
-                disabled={
-                  busy ||
-                  !p.occurrences.some((o: any) => o.status === "EM_TRIAGEM")
-                }
-                onClick={() => onSchedule(p)}
-              >
-                Programar ordem de serviço
-              </button>
-            )}
-            {p.occurrences.some((o: any) => o.status === "IDENTIFICADA") && (
-              <small>
-                Abra as ocorrências identificadas e salve a triagem antes de
-                programar a OS.
-              </small>
-            )}
-          </article>
-        ))}
-      </div>
-      {!planning.plans.length && (
-        <Empty text="Nenhum plano criado. Selecione uma rua com duas ou mais ocorrências disponíveis." />
-      )}
-    </div>
-  );
-}
-function PlanForm({ group, onClose, onSave }: any) {
-  const [selected, setSelected] = useState<string[]>(
-    group.occurrences.slice(0, 100).map((o: any) => o.id),
-  );
-  const [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  return (
-    <Modal title="Criar plano de ação" onClose={onClose}>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const form = new FormData(e.currentTarget);
-          setBusy(true);
-          setError("");
-          try {
-            await onSave({
-              occurrence_ids: selected,
-              objective: form.get("objective"),
-              responsible: form.get("responsible"),
-              scheduled_at: form.get("scheduled_at"),
-            });
-          } catch (err: any) {
-            setError(err.message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <p>
-          <strong>{group.street}</strong> · {group.neighborhood}
-        </p>
-        <p>
-          Revise os registros que serão atendidos em conjunto. A prioridade
-          individual é preservada; o plano e suas ordens recebem a prioridade do
-          grupo.
-        </p>
-        {error && (
-          <div className="notice error" role="alert">
-            {error}
-          </div>
-        )}
-        <div className="plan-selection">
-          {group.occurrences.map((o: any) => (
-            <label key={o.id}>
-              <input
-                type="checkbox"
-                checked={selected.includes(o.id)}
-                onChange={(e) =>
-                  setSelected(
-                    e.target.checked
-                      ? [...selected, o.id]
-                      : selected.filter((id) => id !== o.id),
-                  )
-                }
-              />
-              <span>
-                <strong>{o.code}</strong> · {o.address}
-                <small>
-                  {labels[o.status]} · {o.priority}
-                </small>
-              </span>
-            </label>
-          ))}
-        </div>
-        <p>{selected.length} selecionadas · mínimo 2, máximo 100.</p>
-        <Field label="Objetivo do plano">
-          <textarea
-            name="objective"
-            required
-            minLength={5}
-            maxLength={3000}
-            defaultValue={`Atender em conjunto as ocorrências da ${group.street}.`}
-          />
-        </Field>
-        <div className="form-grid">
-          <Field label="Responsável pelo plano">
-            <input name="responsible" required maxLength={200} />
-          </Field>
-          <Field label="Data planejada">
-            <input type="date" name="scheduled_at" required />
-          </Field>
-        </div>
-        <button
-          className="button primary"
-          disabled={busy || selected.length < 2 || selected.length > 100}
-        >
-          {busy ? "Salvando..." : "Salvar plano de ação"}
-        </button>
-      </form>
-    </Modal>
-  );
-}
-function PlanOrderForm({ plan, boot, onClose, onSave }: any) {
+function PlanOrderForm({ plan, boot, orders, onClose, onSave }: any) {
   const eligible = plan.occurrences.filter(
-    (o: any) => o.status === "EM_TRIAGEM",
+    (o: any) => o.status === "EM_TRIAGEM" && !o.order_ids?.length,
   );
   const [sector, setSector] = useState(eligible[0]?.sector_id || ""),
     [team, setTeam] = useState("");
@@ -2111,8 +1620,9 @@ function PlanOrderForm({ plan, boot, onClose, onSave }: any) {
   const teams = boot.catalogs.filter(
     (c: any) => c.kind === "equipes" && c.sector_id === sector,
   );
+  const [date, setDate] = useState(plan.scheduled_at || "");
   return (
-    <Modal title="Programar ordem do plano" onClose={onClose}>
+    <Modal title="Programar ordem do plano" onClose={onClose} wide>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -2180,6 +1690,7 @@ function PlanOrderForm({ plan, boot, onClose, onSave }: any) {
             ))}
           </select>
         </Field>
+        <PlanningTeamCapacity boot={boot} orders={orders} sectorId={sector} selectedTeam={team} date={date} onChoose={(t: any) => setTeam(t.id)} />
         <div className="form-grid">
           <Field label="Responsável pela ordem">
             <input
@@ -2193,7 +1704,8 @@ function PlanOrderForm({ plan, boot, onClose, onSave }: any) {
               name="scheduled_at"
               type="date"
               required
-              defaultValue={plan.scheduled_at}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
             />
           </Field>
         </div>
@@ -2219,6 +1731,7 @@ function PlanOrderForm({ plan, boot, onClose, onSave }: any) {
 function Assignment({ order, boot, onSave, busy }: any) {
   const [team, setTeam] = useState(order.team_id),
     [operator, setOperator] = useState(order.assigned_user_id || "");
+  const [date, setDate] = useState(order.scheduled_at || "");
   return (
     <details className="assignment-form">
       <summary>
@@ -2239,6 +1752,7 @@ function Assignment({ order, boot, onSave, busy }: any) {
           });
         }}
       >
+        <DispatchContext boot={boot} api={api} sectorId={order.sector_id} selectedTeam={team} scheduledAt={date} excludeOrderId={order.id} onChoose={(t: any) => { setTeam(t.id); setOperator(""); }} />
         <div className="form-grid">
           <Field label="Equipe da programação">
             <select
@@ -2289,7 +1803,8 @@ function Assignment({ order, boot, onSave, busy }: any) {
               type="date"
               name="scheduled_at"
               required
-              defaultValue={order.scheduled_at}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
             />
           </Field>
           <Field label="Instruções para o operador" wide>
@@ -2318,7 +1833,7 @@ function Empty({ text }: { text: string }) {
 function Sla({ order: o }: { order: Row }) {
   const end = o.completed_at ? Date.parse(o.completed_at) : Date.now(),
     hours = Math.ceil((Date.parse(o.due_at) - end) / 3600000),
-    closed = ["CONCLUIDA", "CANCELADA"].includes(o.status);
+    closed = ["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(o.status);
   return (
     <div className={`sla ${hours < 0 && !closed ? "late" : ""}`}>
       <span>
@@ -2481,35 +1996,6 @@ function NewOccurrence({
         )
       : (setError("GPS indisponível."), setLocating(false));
   };
-  const reverse = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const url = new URL(
-        "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/reverseGeocode",
-      );
-      url.searchParams.set("location", `${data.lng},${data.lat}`);
-      url.searchParams.set("f", "json");
-      const result = await (
-        await fetch(url, { signal: AbortSignal.timeout(10000) })
-      ).json();
-      if (!result.address) throw new Error();
-      setData((d: any) => ({
-        ...d,
-        address: result.address.Address || result.address.Match_addr,
-        neighborhood:
-          result.address.Neighborhood ||
-          result.address.District ||
-          d.neighborhood,
-      }));
-    } catch {
-      setError(
-        "Endereço automático indisponível. Preencha endereço e bairro manualmente.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <Modal title="Nova ocorrência" onClose={onClose} wide>
       <form
@@ -2540,7 +2026,7 @@ function NewOccurrence({
             {locating ? "Localizando..." : "Usar meu GPS"}
           </button>
         </div>
-        <AddressSearch disabled={busy} onSelect={result => { setData((d: any) => ({ ...d, ...result, duplicate_action: undefined, duplicate_id: undefined })); setNearby([]); }} />
+
         <GeoMap rows={rows} pick={choosePoint} point={[data.lat, data.lng]} />
         <div className="form-grid">
           <Field label="Latitude">
@@ -2580,15 +2066,6 @@ function NewOccurrence({
             />
           </Field>
         </div>
-        <button
-          type="button"
-          className="text-button"
-          disabled={busy}
-          onClick={reverse}
-        >
-          <Search size={15} />
-          Consultar endereço pelas coordenadas
-        </button>
         <div className="form-section-title">
           <ClipboardList size={18} />
           <h3>Identificação da demanda</h3>
@@ -2638,7 +2115,6 @@ function NewOccurrence({
                 "Central de atendimento",
                 "Integração externa",
                 "Sensor",
-                "Sistema GIS",
                 "Importação administrativa",
               ].map((s) => (
                 <option key={s}>{s}</option>
@@ -2754,8 +2230,9 @@ function Detail({
   onOpen: (t: string, id: string) => void;
   onChange: () => Promise<void>;
 }) {
-  const [tab, setTab] = useState("overview"),
+  const [tab, setTab] = useState(v.initialTab || "overview"),
     [error, setError] = useState(""),
+    [success, setSuccess] = useState(""),
     [busy, setBusy] = useState(false),
     [notes, setNotes] = useState(""),
     [reason, setReason] = useState(""),
@@ -2764,6 +2241,7 @@ function Detail({
     [material, setMaterial] = useState(""),
     [quantity, setQuantity] = useState(1),
     [equipment, setEquipment] = useState("");
+  const [triageDecision, setTriageDecision] = useState(""), [rejectionReason, setRejectionReason] = useState("");
   const cats = boot.catalogs.filter((c) => c.kind === "categorias"),
     sectors = boot.catalogs.filter((c) => c.kind === "setores");
   const [triage, setTriage] = useState({
@@ -2773,15 +2251,18 @@ function Detail({
     priority: v.priority,
   });
   const teams = boot.catalogs.filter(
-    (c) => c.kind === "equipes" && c.sector_id === v.sector_id,
+    (c) => c.kind === "equipes" && c.sector_id === triage.sector_id,
   );
   const [schedule, setSchedule] = useState({
-    team_id: teams[0]?.id || "",
+    team_id: "",
     scheduled_at: new Date().toISOString().slice(0, 10),
-    responsible: teams[0]?.leader || "",
+    responsible: "",
     notes: "",
     assigned_user_id: "",
   });
+  useEffect(() => {
+    if (schedule.team_id && !teams.some(t => t.id === schedule.team_id)) setSchedule(s => ({ ...s, team_id: "", assigned_user_id: "", responsible: "" }));
+  }, [triage.sector_id, schedule.team_id]);
   const name = (id: string) =>
     boot.catalogs.find((c) => c.id === id)?.name || "—";
   const isOrder = v.type === "order",
@@ -2789,12 +2270,15 @@ function Detail({
     location = isOrder ? v.occurrences[0] : v;
   const [lat, setLat] = useState(location?.lat || 0),
     [lng, setLng] = useState(location?.lng || 0);
-  const execute = async (fn: () => Promise<any>) => {
+  const execute = async (fn: () => Promise<any>, message = "Operação registrada com sucesso.") => {
+    if (busy) return;
     setBusy(true);
     setError("");
+    setSuccess("");
     try {
       await fn();
-      await onChange();
+      setSuccess(message);
+      try { await onChange(); } catch { setError("A operação foi registrada, mas não foi possível atualizar o detalhe. Feche e abra o registro antes de continuar."); }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -2802,8 +2286,8 @@ function Detail({
     }
   };
   const action = (a: string, body: any = {}) =>
-    execute(() => api(`${base}/${a}`, "POST", body));
-  const editable = !["CONCLUIDA", "CANCELADA", "AGUARDANDO_VALIDACAO"].includes(
+    execute(() => api(`${base}/${a}`, "POST", body), ({ classificar: "Triagem salva. A gestão já pode programar a ordem de serviço.", assumir: "Deslocamento registrado. Confira a chegada e as evidências antes de iniciar.", iniciar: "Execução iniciada. Registre os materiais e as fotos do serviço.", material: "Consumo de material registrado.", equipamento: "Equipamento vinculado ao serviço.", concluir: "Serviço enviado para validação. A conclusão depende da análise da gestão ou fiscalização.", validar: "Serviço validado e concluído. O resultado foi registrado no histórico.", reabrir: "Execução reaberta para correção. A justificativa foi registrada.", cancelar: "Ordem cancelada. A justificativa foi registrada no histórico." } as Record<string, string>)[a]);
+  const editable = !["CONCLUIDA", "CANCELADA", "RECUSADA", "AGUARDANDO_VALIDACAO"].includes(
     v.status,
   );
   return (
@@ -2821,6 +2305,8 @@ function Detail({
         </p>
         {v.demo && <small className="demo-label">Registro demonstrativo</small>}
       </div>
+      <WorkflowGuide value={v} catalogs={boot.catalogs} onEvidence={() => setTab("evidence")} />
+      {success && <p className="notice" role="status">{success}</p>}
       <div className="tabs">
         <button
           className={tab === "overview" ? "selected" : ""}
@@ -2903,6 +2389,7 @@ function Detail({
           ) : (
             <>
               <p className="description">{v.description}</p>
+              {v.status === "RECUSADA" && <div className="notice" role="status"><span><strong>Recusada na triagem</strong><p>{v.rejection_reason}</p><small>{v.rejected_by} · {fmt(v.rejected_at)}</small></span></div>}
               <div className="detail-facts">
                 <div>
                   <small>Origem</small>
@@ -2926,7 +2413,7 @@ function Detail({
               {v.reference && <p>Referência: {v.reference}</p>}
               <GeoMap rows={[v]} point={[v.lat, v.lng]} />
               {can("classify") &&
-                ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && (
+                ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "" && (
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -3004,30 +2491,35 @@ function Detail({
                         </select>
                       </Field>
                     </div>
-                    <button className="button primary" disabled={busy}>
-                      <Check size={16} />
-                      Salvar triagem
-                    </button>
+                    <div className="form-actions">
+                      {can("schedule") && <button type="button" className="button primary" disabled={busy} onClick={() => { setTriageDecision("program"); setError(""); }}><Plus size={16}/>Gerar ordem de serviço</button>}
+                      <button type="submit" className={`button ${can("schedule") ? "secondary" : "primary"}`} disabled={busy}><Check size={16}/>Concluir triagem e programar depois</button>
+                      <button type="button" className="button secondary" disabled={busy} onClick={() => { setTriageDecision("reject"); setError(""); }}>Recusar</button>
+                    </div>
                   </form>
                 )}
-              {can("schedule") && v.status === "EM_TRIAGEM" && (
+              {can("classify") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "reject" && <form className="assignment-form" onSubmit={e => { e.preventDefault(); execute(async () => { await api(`/ocorrencias/${v.id}/recusar`, "POST", { reason: rejectionReason }); setTriageDecision(""); }, "Demanda recusada. A justificativa foi registrada no histórico."); }}><h3>Justificativa de recusa</h3><Field label="Justificativa de recusa"><textarea autoFocus required maxLength={2000} rows={4} value={rejectionReason} onChange={e=>setRejectionReason(e.target.value)} placeholder="Informe o motivo da recusa desta demanda."/></Field><div className="form-actions"><button type="button" className="button secondary" disabled={busy} onClick={()=>setTriageDecision("")}>Voltar</button><button className="button primary" disabled={busy || !rejectionReason.trim()}>{busy ? "Enviando..." : "Enviar"}</button></div></form>}
+              {can("schedule") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "program" && (
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     execute(async () => {
-                      const order = await api("/ordens-servico", "POST", {
+                      await api("/ordens-servico", "POST", {
                         ...schedule,
                         occurrence_ids: [v.id],
+                        triage,
                       });
-                      await onChange();
+                      setTriageDecision("");
                       setTab("overview");
-                    });
+                    }, "Ordem de serviço criada e equipe designada.");
                   }}
                 >
                   <div className="form-section-title">
                     <ClipboardList size={18} />
                     <h3>Gerar ordem de serviço</h3>
                   </div>
+                  <p>Escolha a equipe e a data. A triagem será salva junto com a programação.</p>
+                  <details className="dispatch-optional"><summary>Consultar equipes e trabalhos do setor</summary><DispatchContext boot={boot} api={api} sectorId={triage.sector_id || v.sector_id} selectedTeam={schedule.team_id} scheduledAt={schedule.scheduled_at} occurrenceId={v.id} onOpen={onOpen} onChoose={(t: any) => setSchedule({ ...schedule, team_id: t.id, assigned_user_id: "", responsible: t.leader || "" })} /></details>
                   <div className="form-grid">
                     <Field label="Equipe">
                       <select
@@ -3099,10 +2591,13 @@ function Detail({
                       />
                     </Field>
                   </div>
+                  <div className="form-actions">
+                  <button type="button" className="button secondary" disabled={busy} onClick={() => setTriageDecision("")}>Voltar à triagem</button>
                   <button className="button primary" disabled={busy}>
                     <Plus size={17} />
-                    Gerar OS
+                    Confirmar ordem de serviço
                   </button>
+                  </div>
                 </form>
               )}
               {v.orders.length > 0 && (

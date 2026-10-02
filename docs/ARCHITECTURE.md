@@ -9,7 +9,6 @@
 | Domínio | Estados, prioridades, perfis, distância e credenciais | server/domain.js |
 | Persistência | Adaptador SQLite/PostgreSQL e migration inicial | server/db.js, server/schema.sql |
 | Inicialização | Catálogos e dados demonstrativos | server/seed.js |
-| GIS | Fila persistente, repetição e integração Feature Service | server/gis.js |
 
 ## Entidades e relacionamentos
 
@@ -23,18 +22,35 @@
 
 `evidence`, `consumption` e `order_equipment` guardam anexos, quantidades com custo unitário histórico e equipamentos. Anexos de ocorrências e OS compartilham o armazenamento, com autorização apropriada.
 
-`audit_logs` registra usuário, horário, evento, valor anterior e novo. A aplicação não oferece edição/exclusão de auditoria. `gis_sync` guarda o estado da última sincronização por ocorrência. `settings` mantém município e raio geográfico. `assets` e `maintenance_plans` reservam os vínculos das fases futuras.
+`audit_logs` registra usuário, horário, evento, valor anterior e novo. A aplicação não oferece edição/exclusão de auditoria. `settings` mantém município e raio geográfico. `assets` e `maintenance_plans` reservam os vínculos das fases futuras.
 
 ## Estados
 
-```text
-IDENTIFICADA -> EM_TRIAGEM -> PROGRAMADA
-PROGRAMADA -> EM_DESLOCAMENTO -> EM_EXECUCAO
-PROGRAMADA -> EM_EXECUCAO
-EM_EXECUCAO -> AGUARDANDO_VALIDACAO -> CONCLUIDA
-AGUARDANDO_VALIDACAO / CONCLUIDA -> EM_EXECUCAO (reabertura justificada)
-PROGRAMADA / EM_DESLOCAMENTO / EM_EXECUCAO -> CANCELADA (justificada)
+`server/domain/workflow.js` é a fonte canônica dos estados e transições. A ocorrência decide a entrada no atendimento; a OS controla a execução. Depois de vinculada, a ocorrência reflete o status da OS por propagação, sem ganhar uma transição direta própria.
+
+```mermaid
+flowchart TD
+  IDENTIFICADA --> EM_TRIAGEM
+  IDENTIFICADA --> RECUSADA
+  EM_TRIAGEM --> RECUSADA
+  EM_TRIAGEM --> PROGRAMADA
+  PROGRAMADA --> EM_DESLOCAMENTO
+  PROGRAMADA --> EM_EXECUCAO
+  PROGRAMADA --> DEVOLVIDA
+  PROGRAMADA --> CANCELADA
+  EM_DESLOCAMENTO --> EM_EXECUCAO
+  EM_DESLOCAMENTO --> DEVOLVIDA
+  EM_DESLOCAMENTO --> CANCELADA
+  EM_EXECUCAO --> AGUARDANDO_VALIDACAO
+  EM_EXECUCAO --> DEVOLVIDA
+  EM_EXECUCAO --> CANCELADA
+  AGUARDANDO_VALIDACAO --> CONCLUIDA
+  AGUARDANDO_VALIDACAO --> EM_EXECUCAO
+  DEVOLVIDA --> PROGRAMADA
+  CONCLUIDA --> EM_EXECUCAO
 ```
+
+`EM_TRIAGEM -> EM_TRIAGEM` é permitido somente para corrigir ou complementar a classificação antes de programar. `RECUSADA` e `CANCELADA` não possuem transição operacional de saída.
 
 Triagem exige perfil próprio. Criar OS exige gestor ou administrador. Iniciar valida foto antes quando obrigatória; concluir valida foto depois, relato e material quando obrigatório. Conclusão operacional não equivale à validação fiscal. Fotos, mudanças de estado e consumos não são aceitos em estados incompatíveis.
 
@@ -54,7 +70,7 @@ Sessões usam cookie HttpOnly e SameSite estrito, com checagem da origem em muta
 
 ## Consistência e limites
 
-Mutações operacionais e seus eventos/filas usam uma transação. As requisições são serializadas sobre uma única conexão; isso evita entrelaçamento de transações em SQLite e PostgreSQL no processo local. O worker GIS participa da mesma fila. Cada chamada externa tem timeout, mas um lote GIS pode aumentar a latência da API; separar o worker com controle de concorrência é um passo de produção.
+Mutações operacionais e seus eventos/filas usam uma transação. As requisições são serializadas sobre uma única conexão; isso evita entrelaçamento de transações em SQLite e PostgreSQL no processo local.
 
 Upload em disco acontece antes da transação. Erros esperados removem o arquivo temporário. Uma falha de processo/commit entre disco e banco pode deixar um arquivo órfão, exigindo coleta periódica em produção. O ID polimórfico dos anexos e vínculos internos de catálogos são validados pela API, não por FKs específicas por tipo.
 

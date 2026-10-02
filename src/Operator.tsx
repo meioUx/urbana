@@ -1,4 +1,3 @@
-import AddressSearch from "./AddressSearch";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -31,6 +30,7 @@ const status: Record<string, string> = {
   AGUARDANDO_VALIDACAO: "Em análise",
   CONCLUIDA: "Aprovada",
   CANCELADA: "Cancelada",
+  RECUSADA: "Recusada",
   DEVOLVIDA: "Devolvida à gestão",
   IDENTIFICADA: "Recebida",
   EM_TRIAGEM: "Em triagem",
@@ -626,7 +626,6 @@ function Register({ boot, api, onSaved }: any) {
           </section>
           <section className="operator-card">
             <h2>2. Confirme o local</h2>
-            <AddressSearch disabled={busy || !!draft.record_id} onSelect={result => { setDraft((d: any) => ({ ...d, ...result, duplicate_action: undefined, duplicate_id: undefined })); setNearby([]); setSaved(""); }} />
             <button
               type="button"
               className="operator-button secondary"
@@ -804,6 +803,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
   const errorRef = useRef<HTMLDivElement>(null);
   const [order, setOrder] = useState<any>(null),
     [error, setError] = useState(""),
+    [success, setSuccess] = useState(""),
     [busy, setBusy] = useState(false),
     [point, setPoint] = useState<any>({ lat: "", lng: "" }),
     [notes, setNotes] = useState(""),
@@ -833,14 +833,17 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
       .catch(() => {});
   }, [id]);
   const action = async (name: string, body: any = {}) => {
+    if (busy) return;
     setBusy(true);
     setError("");
+    setSuccess("");
     try {
       await api(`/ordens-servico/${id}/${name}`, "POST", body);
+      setSuccess(({ assumir: "Deslocamento registrado.", iniciar: "Execução iniciada. Registre o resultado do serviço.", concluir: "Resultado enviado para análise. Aguarde a validação da gestão.", devolver: "Ordem devolvida à gestão com a justificativa informada.", material: "Material utilizado registrado.", equipamento: "Equipamento vinculado." } as Record<string, string>)[name] || "Operação registrada.");
       await load();
-      await onChange();
+      try { await onChange(); } catch { setError("A operação foi registrada, mas a lista não foi atualizada. Volte às tarefas e confira antes de repetir."); }
       if (name === "concluir")
-        await fieldDraft(`notes:${boot.user.id}:${id}`, undefined, true);
+        await fieldDraft(`notes:${boot.user.id}:${id}`, undefined, true).catch(() => {});
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -892,6 +895,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
           {error}
         </div>
       )}
+      {success && <div className="operator-message" role="status">{success}</div>}
       {order.status === "AGUARDANDO_VALIDACAO" && (
         <div className="operator-message">
           <CheckCircle2 />

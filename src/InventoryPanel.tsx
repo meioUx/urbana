@@ -10,15 +10,17 @@ export default function InventoryPanel({ api, catalogs }: { api: (path: string, 
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [success, setSuccess] = useState("");
   const [movement, setMovement] = useState({ material_id: "", type: "entrada", quantity: 1, unit_cost: 0, notes: "" });
-  const load = () => api("/almoxarifado").then(setData).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
+  const load = async () => { const result = await api("/almoxarifado"); setData(result); setError(""); };
+  useEffect(() => { load().catch((e) => setError(e.message)); }, []);
   const materials = data?.materials || [];
   const totalValue = materials.reduce((sum: number, item: any) => sum + item.stock_value, 0);
   const purchaseValue = materials.reduce((sum: number, item: any) => sum + item.suggested_purchase * item.average_cost, 0);
-  if (!data) return <p className="muted">Carregando almoxarifado...</p>;
+  if (!data) return error ? <div className="notice error" role="alert">{error}<button className="button secondary" onClick={() => { setError(""); load().catch((e) => setError(e.message)); }}>Tentar novamente</button></div> : <p className="muted" role="status">Carregando almoxarifado...</p>;
   return <div className="inventory-module">
-    {error && <p className="form-error">{error}</p>}
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {success && <p className="notice" role="status">{success}</p>}
     <div className="inventory-kpis">
       <article><Boxes/><span><small>Valor em estoque</small><strong>{money(totalValue)}</strong></span></article>
       <article><AlertTriangle/><span><small>Itens para repor</small><strong>{materials.filter((item: any) => item.suggested_purchase > 0).length}</strong></span></article>
@@ -28,7 +30,7 @@ export default function InventoryPanel({ api, catalogs }: { api: (path: string, 
     <div className="table-scroll"><table><thead><tr><th>Material</th><th>Saldo</th><th>Custo médio</th><th>Consumo · 90 dias</th><th>Estoque mínimo</th><th>Compra sugerida · 3 meses</th><th>Situação</th></tr></thead>
       <tbody>{materials.map((item: any) => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{quantity(item.stock)} {item.unit}</td><td>{money(item.average_cost)}</td><td>{quantity(item.consumed_90_days)} {item.unit}</td><td>{quantity(item.minimum_stock)} {item.unit}</td><td><strong>{quantity(item.suggested_purchase)} {item.unit}</strong><small className="cell-note">{money(item.suggested_purchase * item.average_cost)}</small></td><td><span className={`stock-status ${item.status}`}>{statusLabel[item.status]}</span></td></tr>)}</tbody>
     </table></div>
-    <form className="inventory-adjustment" onSubmit={async (event) => { event.preventDefault(); setBusy(true); setError(""); try { await api("/almoxarifado/movimentos", "POST", movement); setMovement({ material_id: "", type: "entrada", quantity: 1, unit_cost: 0, notes: "" }); await load(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>
+    <form className="inventory-adjustment" onSubmit={async (event) => { event.preventDefault(); if (busy) return; setBusy(true); setError(""); setSuccess(""); try { await api("/almoxarifado/movimentos", "POST", movement); setSuccess("Movimento registrado. O saldo foi atualizado no almoxarifado."); setMovement({ material_id: "", type: "entrada", quantity: 1, unit_cost: 0, notes: "" }); try { await load(); } catch { setError("O movimento foi salvo, mas o saldo exibido não foi atualizado. Atualize a página antes de registrar outro movimento."); } } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>
       <div className="section-heading"><div><h2>Ajuste manual</h2><p className="muted">Use para inventário inicial, correções e saídas sem ordem de serviço.</p></div></div>
       <div className="form-grid">
         <label>Material<select required value={movement.material_id} onChange={(e) => setMovement({ ...movement, material_id: e.target.value })}><option value="">Selecione</option>{catalogs.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>

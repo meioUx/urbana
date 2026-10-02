@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { openDatabase } from '../server/db.js';
 import { seed } from '../server/seed.js';
 import { createApp } from '../server/app.js';
-import { synchronize } from '../server/gis.js';
 
 let db,server,base,admin,reader,field;
 const temp=mkdtempSync(join(tmpdir(),'urbana-test-'));
@@ -19,6 +18,43 @@ const photo=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 async function attach(path,stage,content=photo,mime='image/png') {const f=new FormData();f.append('file',new Blob([content],{type:mime}),'photo.png');f.append('stage',stage);f.append('lat','-27.1');f.append('lng','-48.6');const r=await fetch(base+path+'/anexos',{method:'POST',headers:{cookie:admin},body:f});return {status:r.status,data:await r.json()};}
 async function createTriaged(lat) {const o=await json('/ocorrencias','POST',draft(lat));assert.equal(o.status,200);const c=await json(`/ocorrencias/${o.data.id}/classificar`,'POST',{category_id:'category-1',subcategory:'Buraco',priority:'Alta',sector_id:'sector-1'});assert.equal(c.status,200);return o.data;}
 async function schedule(o,team='team-1') {return json('/ordens-servico','POST',{occurrence_ids:[o.id],team_id:team,scheduled_at:'2026-09-15',responsible:'Responsável de teste'});}
+test('triage refusal requires reason, preserves audit and removes demand from active planning',async()=>{
+  const created=await json('/ocorrencias','POST',draft(-34.81));
+  assert.equal(created.status,200);
+  const id=created.data.id;
+  assert.equal((await json(`/ocorrencias/${id}/recusar`,'POST',{reason:'Sem autorização'},reader)).status,403);
+  assert.equal((await json(`/ocorrencias/${id}/recusar`,'POST',{reason:'Sem autorização'},field)).status,403);
+  assert.equal((await json(`/ocorrencias/${id}/recusar`,'POST',{reason:'   '})).status,400);
+  const before=(await json('/dashboard')).data.open;
+  const rejected=await json(`/ocorrencias/${id}/recusar`,'POST',{reason:'  Demanda fora da competência municipal.  '});
+  assert.equal(rejected.status,200);
+  assert.equal(rejected.data.status,'RECUSADA');
+  assert.equal(rejected.data.rejection_reason,'Demanda fora da competência municipal.');
+  assert.ok(rejected.data.rejected_by);
+  assert.ok(rejected.data.rejected_at);
+  const detail=(await json(`/ocorrencias/${id}`)).data;
+  assert.ok(detail.history.some(h=>h.event==='Demanda recusada na triagem' && JSON.parse(h.after_value).rejection_reason===rejected.data.rejection_reason));
+  assert.equal((await json('/dashboard')).data.open,before-1);
+  assert.ok((await json('/planejamento')).data.groups.every(g=>g.occurrences.every(o=>o.id!==id)));
+  assert.equal((await json(`/ocorrencias/${id}/recusar`,'POST',{reason:'Outra justificativa'})).status,409);
+  assert.equal((await schedule(created.data)).status,409);
+  assert.equal((await attach(`/ocorrencias/${id}`,'registro')).status,409);
+});
+test('integrated triage and order creation roll back classification when scheduling fails',async()=>{
+  const created=await json('/ocorrencias','POST',draft(-34.82));
+  assert.equal(created.status,200);
+  const payload={occurrence_ids:[created.data.id],team_id:'team-3',scheduled_at:'2026-10-02',responsible:'Gestor',triage:{category_id:'category-1',subcategory:'Buraco',sector_id:'sector-1',priority:'Alta'}};
+  assert.equal((await json('/ordens-servico','POST',payload)).status,400);
+  const unchanged=(await json(`/ocorrencias/${created.data.id}`)).data;
+  assert.equal(unchanged.status,'IDENTIFICADA');
+  assert.equal(unchanged.priority,created.data.priority);
+  assert.equal(unchanged.history.filter(h=>h.event==='Triagem e encaminhamento registrados').length,0);
+  const success=await json('/ordens-servico','POST',{...payload,team_id:'team-1'});
+  assert.equal(success.status,200);
+  assert.equal(success.data.status,'PROGRAMADA');
+  assert.equal((await json(`/ocorrencias/${created.data.id}`)).data.status,'PROGRAMADA');
+  assert.equal((await json(`/ocorrencias/${created.data.id}/recusar`,'POST',{reason:'Não é mais permitido'})).status,409);
+});
 before(async()=>{db=await openDatabase();await seed(db);server=createApp(db).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));base=`http://127.0.0.1:${server.address().port}/api`;admin=(await json('/auth/login','POST',{email:'admin@urbana.local',password:'Testing@2026'},null)).cookie;assert.ok(admin);
 for(const [email,role,team_id] of [['reader@test.local','Consulta',null],['field@test.local','Equipe de Campo','team-2']]){assert.equal((await json('/users','POST',{name:'Teste',email,password:'Testing@2026',role,team_id})).status,200);const cookie=(await json('/auth/login','POST',{email,password:'Testing@2026'},null)).cookie;if(role==='Consulta')reader=cookie;else field=cookie;}
 });
@@ -59,7 +95,6 @@ assert.equal((await attach(path,'depois')).status,409);
 const detail=(await json(path)).data;assert.equal(detail.status,'CONCLUIDA');assert.equal(detail.materials[0].quantity,95);assert.ok(detail.history.length>=8);
 const oc=(await json(`/ocorrencias/${o.id}`)).data;assert.equal(oc.status,'CONCLUIDA');assert.ok(oc.history.length>=5);
 const map=(await json('/mapa/ocorrencias')).data;assert.equal(map.features.find(f=>f.properties.id===o.id).properties.status,'CONCLUIDA');
-assert.equal((await json('/gis/status')).data.find(g=>g.occurrence_id===o.id).status,'pending');
 assert.equal((await json(path+'/reabrir','POST',{reason:'Refazer acabamento'})).status,200);assert.equal((await json(`/ocorrencias/${o.id}`)).data.status,'EM_EXECUCAO');
 });
 test('sector validation and transaction rollback',async()=>{
@@ -72,12 +107,6 @@ const o=(await json('/ocorrencias','POST',{...draft(-27.5),category_id:r.data.id
 assert.equal(o.sector_id,'sector-2');assert.ok((await json('/auditoria')).data.length>0);
 assert.equal((await db.get('SELECT version FROM schema_migrations')).version,1);
 });
-test('ArcGIS retains failed jobs and retries with stable identifier',async()=>{
-const realFetch=globalThis.fetch;process.env.ARCGIS_LAYER_URL='https://example.test/FeatureServer/0';
-try{globalThis.fetch=async()=>{throw new Error('Simulated offline');};await synchronize(db);assert.ok((await db.all("SELECT * FROM gis_sync WHERE status='error'")).length);
-let edits=0;globalThis.fetch=async(url,opts)=>({ok:true,json:async()=>String(url).endsWith('/query')?{features:[{attributes:{OBJECTID:123}}]}:(assert.ok(opts.body.has('updates')),edits++,{updateResults:[{success:true}]})});await synchronize(db);assert.ok(edits>0);assert.equal((await db.all("SELECT * FROM gis_sync WHERE status<>'synced'")).length,0);
-}finally{globalThis.fetch=realFetch;delete process.env.ARCGIS_LAYER_URL;}
-});
 
 test('street action plans: priority, permissions, membership, scheduling and persistence',async()=>{
   const create=async(address,neighborhood='Centro',priority='Baixa')=>{
@@ -88,7 +117,7 @@ test('street action plans: priority, permissions, membership, scheduling and per
   const emergency=await create('Rua Emergência, 1','Centro','Emergencial');
   const payload={occurrence_ids:[a.id,b.id],objective:'Reparar os trechos da rua em conjunto',responsible:'Gestão viária',scheduled_at:'2026-09-20'};
   assert.equal((await json('/planos-acao','POST',payload,reader)).status,403);
-  assert.equal((await json('/planos-acao','POST',{...payload,occurrence_ids:[a.id]})).status,400);
+  assert.equal((await json('/planos-acao','POST',{...payload,occurrence_ids:[]})).status,400);
   assert.equal((await json('/planos-acao','POST',{...payload,occurrence_ids:[a.id,a.id]})).status,400);
   assert.equal((await json('/planos-acao','POST',{...payload,occurrence_ids:[a.id,other.id]})).status,400);
   assert.equal((await json('/planos-acao','POST',{...payload,scheduled_at:'2026-02-30'})).status,400);
@@ -211,4 +240,99 @@ test('invoice confirmation updates stock, stage cost and controlled OS consumpti
   assert.equal((await json('/ordens-servico/'+id+'/material','POST',{material_id:'material-1',quantity:5})).status,200);
   inventory=(await json('/almoxarifado')).data;material=inventory.materials.find(item=>item.id==='material-1');assert.equal(material.stock,85);
   assert.equal((await json('/ordens-servico/'+id+'/material','POST',{material_id:'material-1',quantity:1000})).status,409);
+});
+
+test('kanban shared ordering is persistent, authorized and rejects stale or incomplete columns',async()=>{
+  let config=(await json('/kanban')).data;
+  assert.equal((await json('/kanban','PATCH',{revision:config.revision,limits:{}},reader)).status,403);
+  const created=await json('/ocorrencias','POST',draft(-36.21));assert.equal(created.status,200);
+  const rows=(await json('/ocorrencias')).data,orders=(await json('/ordens-servico')).data;
+  const linked=new Set(orders.flatMap(o=>o.occurrence_ids));
+  const keys=rows.filter(o=>o.status==='IDENTIFICADA'&&!linked.has(o.id)).map(o=>'occurrence:'+o.id).reverse();
+  assert.ok(keys.length);
+  assert.equal((await json('/kanban/ordem','POST',{revision:config.revision,status:'IDENTIFICADA',keys},reader)).status,403);
+  assert.equal((await json('/kanban/ordem','POST',{revision:config.revision,status:'IDENTIFICADA',keys:[...keys,keys[0]]})).status,409);
+  assert.equal((await json('/kanban/ordem','POST',{revision:config.revision,status:'IDENTIFICADA',keys:[]})).status,409);
+  const sorted=await json('/kanban/ordem','POST',{revision:config.revision,status:'IDENTIFICADA',keys});assert.equal(sorted.status,200);
+  assert.equal((await json('/kanban/ordem','POST',{revision:config.revision,status:'IDENTIFICADA',keys})).status,409);
+  config=(await json('/bootstrap')).data.kanban;assert.deepEqual(config.order.IDENTIFICADA,keys);
+  assert.deepEqual(JSON.parse((await db.get("SELECT value FROM settings WHERE id='kanban'")).value).order.IDENTIFICADA,keys);
+  assert.ok((await db.all("SELECT * FROM audit_logs WHERE entity_type='kanban'")).some(a=>a.event==='Ordem dos cartões atualizada'));
+});
+
+test('kanban WIP limits enforce atomic transitions outside the board and protect concurrent moves',async()=>{
+  const source=(await json('/ocorrencias','POST',draft(-36.31))).data;
+  const other=(await json('/ocorrencias','POST',draft(-36.32))).data;
+  const triage={category_id:'category-1',subcategory:'Buraco',priority:'Alta',sector_id:'sector-1'};
+  await createTriaged(-36.33);
+  const count=Number((await db.get("SELECT COUNT(*) AS n FROM occurrences WHERE status='EM_TRIAGEM' AND NOT EXISTS (SELECT 1 FROM order_occurrences r WHERE r.occurrence_id=occurrences.id)")).n);
+  let config=(await json('/kanban')).data;
+  const limits=await json('/kanban','PATCH',{revision:config.revision,limits:{EM_TRIAGEM:count}});assert.equal(limits.status,200);
+  try {
+    const beforeAudit=(await db.all('SELECT * FROM audit_logs')).length;
+    const full=await json(`/ocorrencias/${source.id}/classificar`,'POST',{...triage,kanban_expected_status:'IDENTIFICADA'});
+    assert.equal(full.status,409);assert.equal(full.data.details.wip,'EM_TRIAGEM');
+    assert.equal((await json('/ocorrencias/'+source.id)).data.status,'IDENTIFICADA');
+    assert.equal((await db.all('SELECT * FROM audit_logs')).length,beforeAudit);
+    config=(await json('/kanban')).data;
+    assert.equal((await json('/kanban','PATCH',{revision:config.revision,limits:{CONCLUIDA:2}})).status,400);
+    assert.equal((await json('/kanban','PATCH',{revision:config.revision,limits:{EM_TRIAGEM:-1}})).status,400);
+    await json('/kanban','PATCH',{revision:config.revision,limits:{}});
+    assert.equal((await json(`/ocorrencias/${source.id}/classificar`,'POST',{...triage,kanban_expected_status:'IDENTIFICADA'})).status,200);
+    const stale=await json(`/ocorrencias/${source.id}/classificar`,'POST',{...triage,priority:'Baixa',kanban_expected_status:'IDENTIFICADA'});
+    assert.equal(stale.status,409);assert.equal((await json('/ocorrencias/'+source.id)).data.priority,'Alta');
+    const scheduled=await schedule(source);assert.equal(scheduled.status,200);
+    const programmed=Number((await db.get("SELECT COUNT(*) AS n FROM orders WHERE status='PROGRAMADA'")).n);
+    config=(await json('/kanban')).data;await json('/kanban','PATCH',{revision:config.revision,limits:{PROGRAMADA:programmed}});
+    assert.equal((await json(`/ocorrencias/${other.id}/classificar`,'POST',triage)).status,200);
+    const beforeOrders=(await json('/ordens-servico')).data.length;
+    const noCapacity=await schedule(other);assert.equal(noCapacity.status,409);
+    assert.equal((await json('/ordens-servico')).data.length,beforeOrders);
+    assert.equal((await json('/ocorrencias/'+other.id)).data.status,'EM_TRIAGEM');
+    // A leaving item releases a slot, while evidence rules remain mandatory.
+    assert.equal((await json(`/ordens-servico/${scheduled.data.id}/iniciar`,'POST',{lat:-36.31,lng:-48.6})).status,400);
+    assert.equal((await json(`/ordens-servico/${scheduled.data.id}/assumir`,'POST',{})).status,200);
+    assert.equal((await schedule(other)).status,200);
+  } finally { config=(await json('/kanban')).data;await json('/kanban','PATCH',{revision:config.revision,limits:{}}); }
+});
+
+test('single-demand plans and atomic planning plus dispatch preserve reservations and WIP',async()=>{
+  const solo=(await json('/ocorrencias','POST',{...draft(-37.51),address:'Rua Obra Individual, 10',priority:'Baixa'})).data;
+  const single=await json('/planos-acao','POST',{occurrence_ids:[solo.id],objective:'Executar a intervenção isolada',responsible:'Coordenação',scheduled_at:'2026-10-02'});
+  assert.equal(single.status,200);assert.equal(single.data.priority,'Baixa');assert.equal(single.data.sector_id,'sector-1');
+  const pending=(await json('/planejamento')).data.plans.find(p=>p.id===single.data.id);assert.equal(pending.occurrences.length,1);assert.equal(pending.orders.length,0);
+  const paved=(await json('/ocorrencias','POST',{...draft(-37.52),address:'Rua Setor de Teste, 10'})).data;
+  const drain=(await json('/ocorrencias','POST',{...draft(-37.53),address:'Rua Setor de Teste, 20',category_id:'category-2',subcategory:'Obstrução'})).data;
+  const planCount=(await json('/planejamento')).data.plans.length;
+  assert.equal((await json('/planos-acao','POST',{occurrence_ids:[paved.id,drain.id],objective:'Intervir na mesma rua',responsible:'Coordenação',scheduled_at:'2026-10-02'})).status,400);
+  assert.equal((await json('/planejamento')).data.plans.length,planCount);
+  const ready=await createTriaged(-37.54);
+  const payload={occurrence_ids:[ready.id],team_id:'team-1',responsible:'Equipe responsável',scheduled_at:'2026-10-02',new_plan:{objective:'Reparar a via e liberar o tráfego',responsible:'Coordenação de obras'}};
+  assert.equal((await json('/ordens-servico','POST',payload,reader)).status,403);
+  assert.equal((await json('/ordens-servico','POST',{...payload,team_id:'team-3'})).status,400);
+  assert.equal((await json('/ordens-servico','POST',{...payload,scheduled_at:'2026-02-30'})).status,400);
+  assert.equal((await json('/planejamento')).data.plans.length,planCount);
+  let config=(await json('/kanban')).data;
+  const count=Number((await db.get("SELECT COUNT(*) AS n FROM orders WHERE status='PROGRAMADA'")).n);assert.ok(count>0);
+  await json('/kanban','PATCH',{revision:config.revision,limits:{PROGRAMADA:count}});
+  try {
+    const auditCount=(await db.all('SELECT * FROM audit_logs')).length;
+    const blocked=await json('/ordens-servico','POST',payload);assert.equal(blocked.status,409);assert.equal(blocked.data.details.wip,'PROGRAMADA');
+    assert.equal((await json('/planejamento')).data.plans.length,planCount);
+    assert.equal((await db.all('SELECT * FROM audit_logs')).length,auditCount);
+    assert.equal((await db.get('SELECT plan_id FROM action_plan_occurrences WHERE occurrence_id=?',[ready.id])),undefined);
+    assert.equal((await json('/ocorrencias/'+ready.id)).data.status,'EM_TRIAGEM');
+  } finally {config=(await json('/kanban')).data;await json('/kanban','PATCH',{revision:config.revision,limits:{}});}
+  const created=await json('/ordens-servico','POST',payload);assert.equal(created.status,200);assert.ok(created.data.plan_id);
+  const plan=(await json('/planejamento')).data.plans.find(p=>p.id===created.data.plan_id);
+  assert.equal(plan.orders.length,1);assert.equal(plan.orders[0].id,created.data.id);assert.deepEqual(plan.occurrences[0].order_ids,[created.data.id]);
+  assert.equal(plan.occurrences[0].status,'PROGRAMADA');assert.equal(plan.scheduled_at,'2026-10-02');
+  const beforeRepeat=(await json('/planejamento')).data.plans.length;
+  assert.equal((await json('/ordens-servico','POST',payload)).status,409);
+  assert.equal((await json('/planejamento')).data.plans.length,beforeRepeat);
+  assert.equal((await json('/planos-acao','POST',{occurrence_ids:[ready.id],objective:'Novo plano indevido',responsible:'Coordenação',scheduled_at:'2026-10-03'})).status,409);
+  // Existing OS links cannot be repackaged as unassigned work, even if an old record has a triage status.
+  await db.run("UPDATE occurrences SET status='EM_TRIAGEM' WHERE id=?",[ready.id]);
+  assert.equal((await json('/planos-acao','POST',{occurrence_ids:[ready.id],objective:'Novo plano indevido',responsible:'Coordenação',scheduled_at:'2026-10-03'})).status,409);
+  await db.run("UPDATE occurrences SET status='PROGRAMADA' WHERE id=?",[ready.id]);
 });

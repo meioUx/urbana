@@ -1,3 +1,4 @@
+import { navigate } from "./navigation.mjs";
 import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -25,22 +26,7 @@ try {
  assert.equal(await field.locator('.sidebar').count(),0);
  await field.evaluate(()=>navigator.serviceWorker.ready.then(()=>undefined));
  await field.getByRole('button',{name:'Registrar',exact:true}).click();
- await field.route('**/findAddressCandidates?*', async route => {
-   const query = new URL(route.request().url()).searchParams.get('SingleLine');
-   if(query === 'Falha de rede') return route.abort();
-   return route.fulfill({json:{candidates:query === 'Rua inexistente' ? [] : [{address:'Rua Teste, 123, Cidade',location:{x:-48.6,y:-30.1},attributes:{Neighborhood:'Centro'}}]}});
- });
- const addressSearch=field.getByRole('searchbox',{name:'Buscar endere\u00e7o'});
- await addressSearch.fill('Rua inexistente');await addressSearch.press('Enter');
- await field.getByRole('status').filter({hasText:'Nenhum endere\u00e7o encontrado'}).waitFor();
- await addressSearch.fill('Falha de rede');await addressSearch.press('Enter');
- await field.getByRole('status').filter({hasText:'Verifique a conex\u00e3o'}).waitFor();
- await addressSearch.fill('Rua Teste, 123, Cidade');await addressSearch.press('Enter');
- await field.getByRole('button',{name:'Rua Teste, 123, Cidade',exact:true}).click();
- assert.equal(await field.getByLabel('Rua e n\u00famero',{exact:true}).inputValue(),'Rua Teste, 123, Cidade');
- assert.equal(await field.getByLabel('Bairro',{exact:true}).inputValue(),'Centro');
- assert.equal(await field.getByLabel('Latitude do registro',{exact:true}).inputValue(),'-30.1');
- assert.equal(await field.getByLabel('Longitude do registro',{exact:true}).inputValue(),'-48.6');
+ assert.equal(await field.getByRole('searchbox').count(),0);
  assert.equal(await field.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await field.getByLabel('Foto do problema',{exact:true}).setInputFiles(photo);
  await field.getByRole('button',{name:'Usar minha localização',exact:true}).click();
@@ -69,7 +55,7 @@ try {
  const adminContext=await browser.newContext({viewport:{width:1440,height:1000}}),admin=await adminContext.newPage();admin.on('pageerror',e=>errors.push(e.message));await admin.goto(url);await login(admin,'admin@urbana.local');await admin.getByRole('heading',{name:'Visão geral',exact:true}).waitFor();
  assert.equal((await admin.request.post(url+`/api/ocorrencias/${occurrence.id}/classificar`,{data:{category_id:'category-1',subcategory:'Buraco',priority:'Alta',sector_id:'sector-1'}})).status(),200);
  const result=await admin.request.post(url+'/api/ordens-servico',{data:{occurrence_ids:[occurrence.id],team_id:'team-1',scheduled_at:'2026-09-21',responsible:'Equipe de pavimentação',notes:'Sinalizar a via antes do reparo.'}});assert.equal(result.status(),200);const order=await result.json();
- await admin.reload();await admin.locator('nav').getByRole('button',{name:'Ordens de serviço',exact:true}).click();await admin.locator('tbody tr').filter({hasText:order.code}).click();
+ await admin.reload();await navigate(admin,'Ordens de serviço');await admin.locator('tbody tr').filter({hasText:order.code}).click();
  await admin.getByText('Distribuir para equipe ou operador',{exact:true}).click();
  await admin.getByLabel('Operador da programação',{exact:true}).selectOption('campo');
  await admin.getByLabel('Instruções para o operador',{exact:true}).fill('Sinalizar a via, executar tapa-buraco e limpar o local.');
@@ -98,7 +84,7 @@ try {
  assert.equal(await field.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await field.getByRole('button',{name:'Enviar para análise',exact:true}).click();await field.getByText('Resultado enviado. Aguarde a análise da gestão para o fechamento.',{exact:true}).waitFor();
  assert.equal(await field.getByRole('button',{name:'Validar e concluir',exact:true}).count(),0);
- await admin.reload();await admin.locator('nav').getByRole('button',{name:'Análise de campo',exact:true}).click();await admin.locator('.team-card').filter({hasText:order.code}).getByRole('button',{name:'Analisar ordem',exact:true}).click();
+ await admin.reload();await navigate(admin,'Análise de campo');await admin.locator('.team-card').filter({hasText:order.code}).getByRole('button',{name:'Analisar ordem',exact:true}).click();
  await admin.getByRole('button',{name:/^Evidências/}).click();await admin.screenshot({path:'test-results/field-manager-review.png',fullPage:true});
  await admin.getByRole('button',{name:'Execução',exact:true}).click();await admin.getByRole('button',{name:'Validar e concluir',exact:true}).click();
  await admin.getByRole('dialog').getByText('Concluída',{exact:true}).first().waitFor();

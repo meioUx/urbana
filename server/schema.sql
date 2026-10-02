@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS evidence (id TEXT PRIMARY KEY, entity_type TEXT NOT N
 CREATE TABLE IF NOT EXISTS consumption (id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id), material_id TEXT NOT NULL REFERENCES catalogs(id), quantity DOUBLE PRECISION NOT NULL CHECK(quantity > 0), unit_cost DOUBLE PRECISION NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS order_equipment (order_id TEXT NOT NULL REFERENCES orders(id), equipment_id TEXT NOT NULL REFERENCES catalogs(id), PRIMARY KEY(order_id, equipment_id));
 CREATE TABLE IF NOT EXISTS audit_logs (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), event TEXT NOT NULL, before_value TEXT, after_value TEXT, created_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS gis_sync (occurrence_id TEXT PRIMARY KEY REFERENCES occurrences(id), status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, error TEXT, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, type_id TEXT REFERENCES catalogs(id), code TEXT UNIQUE NOT NULL, lat DOUBLE PRECISION NOT NULL, lng DOUBLE PRECISION NOT NULL, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS maintenance_plans (id TEXT PRIMARY KEY, asset_id TEXT REFERENCES assets(id), category_id TEXT NOT NULL REFERENCES catalogs(id), interval_days INTEGER NOT NULL, next_run_at TEXT NOT NULL, data TEXT NOT NULL);

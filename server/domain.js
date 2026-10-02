@@ -1,15 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-export const statuses = [
-  "IDENTIFICADA",
-  "EM_TRIAGEM",
-  "PROGRAMADA",
-  "EM_DESLOCAMENTO",
-  "EM_EXECUCAO",
-  "AGUARDANDO_VALIDACAO",
-  "DEVOLVIDA",
-  "CONCLUIDA",
-  "CANCELADA",
-];
+export { statuses } from "./domain/workflow.js";
 export const priorities = [
   "Emergencial",
   "Alta",

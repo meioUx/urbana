@@ -14,7 +14,7 @@ A aplicação foi implementada e testada localmente. Não há endereço público
 6. No telefone, abra `https://SEU_DOMINIO/campo`. Entre com a conta do operador, permita a localização e adicione à Tela de Início. Toque em **Ativar avisos neste celular**. No iPhone, faça isso a partir do aplicativo instalado.
 7. Distribua uma OS de teste e confira o aviso com o aplicativo fechado, a rota, as duas fotos e a aprovação pelo gestor. A entrega real de push depende do navegador, da permissão e do serviço de notificações; os testes automatizados usam envio simulado.
 
-Variáveis de banco PostgreSQL e ArcGIS podem ser acrescentadas ao ambiente do serviço `app` quando disponíveis. Não configure PostgreSQL apenas para a publicação funcionar: esta composição usa SQLite persistente em uma única instância. Não escale para múltiplas réplicas compartilhando esse volume.
+Variáveis de banco PostgreSQL podem ser acrescentadas ao ambiente do serviço `app` quando disponíveis. Não configure PostgreSQL apenas para a publicação funcionar: esta composição usa SQLite persistente em uma única instância. Não escale para múltiplas réplicas compartilhando esse volume.
 
 ## Atualizar e preservar dados
 

@@ -334,13 +334,6 @@ export async function seed(db) {
       JSON.stringify({ status: states[i] }),
       created,
     ]);
-    await db.run("INSERT INTO gis_sync VALUES(?,?,?,?,?)", [
-      id,
-      "pending",
-      0,
-      null,
-      now(),
-    ]);
     if (
       [
         "PROGRAMADA",

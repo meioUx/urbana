@@ -1773,3 +1773,51 @@ textarea {
   cursor: pointer;
   font-weight: 600;
 }
+
+.territorial-heat-layer { position: absolute; }
+.heat-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.heat-controls button[aria-pressed="true"] { background: #e5f3ec; border-color: #26896b; color: #185e46; }
+.heat-controls > span { font-size: 12px; color: #62736b; }
+.heat-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 0; font-size: 13px; }
+.heat-ramp { width: 160px; height: 12px; border-radius: 8px; background: linear-gradient(to right, #2374e1, #24cbb1, #e6ed45, #f89b28, #db2929); }
+.heat-legend small { flex-basis: 100%; line-height: 1.5; }
+
+.action-queue, .workflow-guide { border: 1px solid #d7e2db; border-radius: 12px; padding: 20px; margin-bottom: 20px; background: #f8fbf9; }
+.action-queue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.action-queue-grid > button { display: flex; gap: 12px; align-items: center; text-align: left; padding: 16px; border: 1px solid #d7e2db; border-radius: 8px; background: white; color: #244638; cursor: pointer; }
+.action-queue-grid > button:hover { border-color: #26896b; background: #eef7f1; }
+.action-queue-grid strong { font-size: 28px; }
+.action-queue-grid span { flex: 1; font-weight: 600; }
+.action-queue-grid small { display: block; font-weight: 400; color: #62736b; margin-top: 5px; }
+.action-queue > p { margin: 14px 0 0; font-size: 12px; }
+.workflow-steps { list-style: none; display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 0; margin: 0 0 18px; }
+.workflow-steps li { display: flex; align-items: center; gap: 6px; color: #69766f; font-size: 12px; }
+.workflow-steps li > span { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; width: 24px; height: 24px; background: #e6ebe8; }
+.workflow-steps li.current { font-weight: 700; color: #185e46; }
+.workflow-steps li.current > span { background: #26896b; color: white; }
+.workflow-steps li.done { color: #26896b; }
+.workflow-guide p { margin: 8px 0 0; line-height: 1.6; }
+.workflow-checks { list-style: none; padding: 0; margin: 12px 0 0; }
+.workflow-checks li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid #d7e2db; }
+@media (max-width: 600px) { .action-queue, .workflow-guide { padding: 14px; } .action-queue-grid { grid-template-columns: 1fr; } }
+.sidebar nav { overflow-y: auto; min-height: 0; padding-bottom: 12px; scrollbar-width: thin; flex: 1; }
+.sidebar .nav-caption { margin-top: 28px; margin-bottom: 12px; letter-spacing: .08em; }
+.sidebar .nav-item { min-height: 42px; padding: 10px 11px; margin: 2px 0; }
+.nav-separator { height: 1px; background: #e8eeea; margin: 14px 10px 12px; }
+.nav-group-toggle { font-weight: 600; }
+.nav-group-toggle.group-active { color: #267b58; }
+.nav-group-toggle > svg:last-child { transition: transform .15s; }
+.nav-group-toggle > svg.rotated { transform: rotate(180deg); }
+.nav-submenu { margin: 4px 0 9px 19px; padding-left: 10px; border-left: 1px solid #dce8e0; }
+.sidebar .nav-child { font-size: 11px; gap: 8px; padding-left: 10px; }
+.sidebar-bottom { flex-shrink: 0; background: white; }
+@media(max-height:700px) { .sidebar { padding-top: 18px; }.sidebar .nav-caption { margin-top: 18px; }.sidebar .nav-item { min-height: 38px; padding-block: 8px; }.sidebar-bottom .connection { padding-block: 12px; } }
+@media(prefers-reduced-motion:reduce) { .nav-group-toggle > svg:last-child { transition: none; } }
+/* Visible keyboard focus and compact, actionable triage queues. */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 3px solid #176b4a; outline-offset: 3px; }
+.demand-queue { margin-bottom: 18px; padding: 16px; background: #f1f7f3; border: 1px solid #cfdfd4; border-radius: 12px; }
+.demand-queue p { margin: 0 0 12px; color: #344c40; line-height: 1.5; }
+.demand-queue .form-actions { justify-content: flex-start; flex-wrap: wrap; margin: 0; }
+.demand-queue button, .dispatch-optional summary { min-height: 44px; }
+.dispatch-optional { margin: 12px 0 20px; border: 1px solid #d5dfd9; border-radius: 10px; padding: 0 12px; }
+.dispatch-optional summary { display: list-item; padding: 12px 0; cursor: pointer; color: #285a43; font-weight: 600; }
