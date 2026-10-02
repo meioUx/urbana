@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "vite";
 import { chromium } from "./map-browser-fixture.mjs";
-process.env.VITE_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+process.env.VITE_MAP_TILE_URL = ""; // Exercise the default provider.
 process.env.VITE_MAP_ATTRIBUTION = "";
 const server = await createServer({ server: { host: "127.0.0.1", port: 0, headers: { "Referrer-Policy": "strict-origin-when-cross-origin" } } });
 await server.listen();

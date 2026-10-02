@@ -1,9 +1,9 @@
-// One provider configuration for all maps; no network service is assumed by default.
+// One provider configuration for all maps; custom providers can override OpenStreetMap.
 export const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 export function resolveMapTileProvider(env = {}) {
-  const url = env.VITE_MAP_TILE_URL?.trim();
-  if (!url) return {
+  const url = env.VITE_MAP_TILE_URL?.trim() || OSM_TILE_URL;
+  if (url === "/map-development-tile.svg") return {
     url: "/map-development-tile.svg",
     attribution: "Urbana · grade local de desenvolvimento (sem cartografia)",
     maxZoom: 19,

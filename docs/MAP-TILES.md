@@ -18,7 +18,7 @@ VITE_MAP_MAX_ZOOM=19
 
 As variáveis `VITE_*` são públicas e incorporadas durante o build. Use somente tokens destinados a uso público no navegador. Alterar apenas o ambiente do processo de produção não modifica um bundle já compilado; execute novamente `npm run build`. Docker aceita esses valores como build args; Compose os encaminha automaticamente: `docker compose up -d --build`.
 
-Sem URL, todos os ambientes usam uma grade SVG local, identificada como desenvolvimento e sem cartografia. Isso permite desenvolver marcadores, seleção, calor e GeoJSON sem consumir um servidor externo; não é um mapa-base de produção. Providers externos exigem atribuição. O OSM só é aceito por configuração explícita com sua URL canônica, sempre com atribuição dos colaboradores.
+Sem URL, o mapa usa OpenStreetMap com sua URL canônica e atribuição dos colaboradores. Para desenvolver sem cartografia ou tráfego externo, configure explicitamente `VITE_MAP_TILE_URL=/map-development-tile.svg`. Providers personalizados continuam exigindo atribuição.
 
 ## Camadas e uso
 

@@ -3,11 +3,21 @@ import assert from "node:assert/strict";
 import { resolveMapTileProvider, OSM_TILE_URL } from "../src/modules/map/tile-provider.mjs";
 import { mockMapTiles } from "./map-browser-fixture.mjs";
 
-test("empty provider uses local grid without any remote URL", () => {
-  const provider = resolveMapTileProvider({ VITE_MAP_TILE_URL: " " });
+test("empty provider loads OpenStreetMap with contributor attribution", () => {
+  for (const env of [{}, { VITE_MAP_TILE_URL: " " }]) {
+    const provider = resolveMapTileProvider(env);
+    assert.equal(provider.url, OSM_TILE_URL);
+    assert.equal(provider.placeholder, false);
+    assert.match(provider.attribution, /OpenStreetMap.*contributors/);
+  }
+});
+
+test("local development grid requires explicit configuration", () => {
+  const provider = resolveMapTileProvider({ VITE_MAP_TILE_URL: "/map-development-tile.svg" });
   assert.equal(provider.url, "/map-development-tile.svg");
   assert.equal(provider.placeholder, true);
 });
+
 test("configured provider and attribution are independent of operational layers", () => {
   assert.deepEqual(resolveMapTileProvider({
     VITE_MAP_TILE_URL: "https://maps.example/{z}/{x}/{y}.png",
