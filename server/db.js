@@ -1,3 +1,4 @@
+import {initializeModules} from './user-permissions.js';
 import { DatabaseSync } from "node:sqlite";
 import pg from "pg";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -136,5 +137,14 @@ export async function openDatabase() {
       await db.exec("COMMIT");
     } catch (error) {await db.exec("ROLLBACK");throw error;}
   }
+  if (!(await db.get('SELECT version FROM schema_migrations WHERE version=8'))) {
+    await db.exec('BEGIN');
+    try {
+      await initializeModules(db);
+      await db.run('INSERT INTO schema_migrations(version,applied_at) VALUES(8,?)',[new Date().toISOString()]);
+      await db.exec('COMMIT');
+    } catch(error) {await db.exec('ROLLBACK');throw error;}
+  }
+  await db.run('INSERT INTO schema_migrations(version,applied_at) VALUES(9,?) ON CONFLICT(version) DO NOTHING',[new Date().toISOString()]);
   return db;
 }

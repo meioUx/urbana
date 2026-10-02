@@ -8,14 +8,14 @@ import { openDatabase } from '../server/db.js';
 import { seed } from '../server/seed.js';
 import { createApp } from '../server/app.js';
 
-let db,server,base,admin,reader,field;
+let db,server,base,admin,reader,field,executor;
 const temp=mkdtempSync(join(tmpdir(),'urbana-test-'));
 process.env.DATA_DIR=temp;process.env.DEMO_DATA='false';process.env.ADMIN_PASSWORD='Testing@2026';
 delete process.env.DATABASE_URL;
-const json=async(path,method='GET',body,cookie=admin)=>{if(method!=='GET' && body){const m=path.match(/^\/(ocorrencias|ordens-servico)\/([^/]+)(?:\/([^/]+))?$/);if(m && !['material','equipamento','anexos'].includes(m[3]) && body.version===undefined){const current=await json('/'+m[1]+'/'+m[2],'GET',undefined,cookie);body={...body,version:current.data.version};}if(body.triage && body.triage.version===undefined){const current=await json('/ocorrencias/'+body.occurrence_ids[0],'GET',undefined,cookie);body={...body,triage:{...body.triage,version:current.data.version}};}}const r=await fetch(base+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};};
+const json=async(path,method='GET',body,cookie=admin)=>{if(cookie===admin && method==='POST' && /^\/ordens-servico\/[^/]+\/(assumir|iniciar|concluir|devolver|material|equipamento)$/.test(path))cookie=executor;if(method!=='GET' && body){const m=path.match(/^\/(ocorrencias|ordens-servico)\/([^/]+)(?:\/([^/]+))?$/);if(m && !['material','equipamento','anexos'].includes(m[3]) && body.version===undefined){const current=await json('/'+m[1]+'/'+m[2],'GET',undefined,cookie);body={...body,version:current.data.version};}if(body.triage && body.triage.version===undefined){const current=await json('/ocorrencias/'+body.occurrence_ids[0],'GET',undefined,cookie);body={...body,triage:{...body.triage,version:current.data.version}};}}const r=await fetch(base+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};};
 const draft=(lat=-27.1)=>({category_id:'category-1',subcategory:'Buraco',description:'Falha no pavimento',origin:'Fiscalização municipal',priority:'Alta',lat,lng:-48.6,address:'Rua de teste, 100',neighborhood:'Centro'});
 const photo=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV6kAAAAASUVORK5CYII=','base64');
-async function attach(path,stage,content=photo,mime='image/png') {const f=new FormData();f.append('file',new Blob([content],{type:mime}),'photo.png');f.append('stage',stage);f.append('lat','-27.1');f.append('lng','-48.6');const r=await fetch(base+path+'/anexos',{method:'POST',headers:{cookie:admin},body:f});return {status:r.status,data:await r.json()};}
+async function attach(path,stage,content=photo,mime='image/png') {const f=new FormData();f.append('file',new Blob([content],{type:mime}),'photo.png');f.append('stage',stage);f.append('lat','-27.1');f.append('lng','-48.6');const r=await fetch(base+path+'/anexos',{method:'POST',headers:{cookie:path.startsWith("/ordens-servico/")?executor:admin},body:f});return {status:r.status,data:await r.json()};}
 async function createTriaged(lat) {const o=await json('/ocorrencias','POST',draft(lat));assert.equal(o.status,200);const c=await json(`/ocorrencias/${o.data.id}/classificar`,'POST',{category_id:'category-1',subcategory:'Buraco',priority:'Alta',sector_id:'sector-1'});assert.equal(c.status,200);return o.data;}
 async function schedule(o,team='team-1') {return json('/ordens-servico','POST',{occurrence_ids:[o.id],team_id:team,scheduled_at:'2026-09-15',responsible:'Responsável de teste'});}
 test('triage refusal requires reason, preserves audit and removes demand from active planning',async()=>{
@@ -57,6 +57,7 @@ test('integrated triage and order creation roll back classification when schedul
 });
 before(async()=>{db=await openDatabase();await seed(db);server=createApp(db).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));base=`http://127.0.0.1:${server.address().port}/api`;admin=(await json('/auth/login','POST',{email:'admin@urbana.local',password:'Testing@2026'},null)).cookie;assert.ok(admin);
 for(const [email,role,team_id] of [['reader@test.local','Consulta',null],['field@test.local','Equipe de Campo','team-2']]){assert.equal((await json('/users','POST',{name:'Teste',email,password:'Testing@2026',role,team_id})).status,200);const cookie=(await json('/auth/login','POST',{email,password:'Testing@2026'},null)).cookie;if(role==='Consulta')reader=cookie;else field=cookie;}
+const executionUser=await json('/users','POST',{name:'Executor',email:'executor@test.local',password:'Testing@2026',role:'Equipe de Campo',team_id:'team-1'});assert.equal(executionUser.status,200);executor=(await json('/auth/login','POST',{email:'executor@test.local',password:'Testing@2026'},null)).cookie;
 });
 after(async()=>{await new Promise(r=>server.close(r));await db.close();rmSync(temp,{recursive:true,force:true});});
 test('authentication, origin checks and role enforcement',async()=>{
@@ -76,7 +77,7 @@ const extra=await json('/ocorrencias','POST',{...draft(-27.2),duplicate_action:'
 test('full lifecycle: triage, assignment, evidence, materials, validation, map and history',async()=>{
 const o=await createTriaged(-27.3);const result=await schedule(o);assert.equal(result.status,200);const id=result.data.id,path=`/ordens-servico/${id}`;
 assert.equal((await json(path,'GET',undefined,field)).status,403);
-assert.ok(!(await json('/dashboard','GET',undefined,field)).data.orders.some(o=>o.id===id));
+assert.equal((await json('/dashboard','GET',undefined,field)).status,403);
 assert.equal((await json(path+'/iniciar','POST',{lat:-27.3,lng:-48.6})).status,400);
 assert.equal((await attach(path,'antes',Buffer.from('<script>evil</script>'))).status,400);
 assert.equal((await attach(path,'antes')).status,200);
@@ -138,7 +139,7 @@ test('street action plans: priority, permissions, membership, scheduling and per
   assert.equal((await json('/ordens-servico','POST',orderPayload)).status,409);
   let current=(await json('/planejamento')).data.plans.find(p=>p.id===plan.data.id);
   assert.equal(current.orders.length,1);assert.equal(current.completed,0);
-  assert.equal((await json('/planejamento','GET',undefined,field)).data.plans.find(p=>p.id===plan.data.id).orders.length,0);
+  assert.equal((await json('/planejamento','GET',undefined,field)).status,403);
   const persisted=await openDatabase();assert.equal((await persisted.get('SELECT code FROM action_plans WHERE id=?',[plan.data.id])).code,plan.data.code);assert.equal((await persisted.all('SELECT * FROM schema_migrations WHERE version=2')).length,1);await persisted.close();
   await db.run("UPDATE occurrences SET status='CONCLUIDA' WHERE id=?",[a.id]);
   current=(await json('/planejamento')).data.plans.find(p=>p.id===plan.data.id);assert.equal(current.completed,1);
@@ -174,7 +175,7 @@ test('field capture, individual dispatch, return and review permissions',async()
  const scheduled=await json('/ordens-servico','POST',task);assert.equal(scheduled.status,200);const path='/ordens-servico/'+scheduled.data.id;
  assert.equal((await json(path,'GET',undefined,field)).status,200);assert.equal((await json(path,'GET',undefined,secondCookie)).status,403);
  assert.ok(!(await json('/campo','GET',undefined,secondCookie)).data.orders.some(o=>o.id===scheduled.data.id));
- assert.ok(!(await json('/dashboard','GET',undefined,secondCookie)).data.orders.some(o=>o.id===scheduled.data.id));
+ assert.equal((await json('/dashboard','GET',undefined,secondCookie)).status,403);
  assert.equal((await json('/ocorrencias/'+first.data.id,'GET',undefined,secondCookie)).data.orders.length,0);
  assert.equal((await json(path+'/devolver','POST',{reason:''},field)).status,400);
  assert.equal((await json(path+'/devolver','POST',{reason:'Rua interditada; necessário reagendar.'},field)).status,200);
@@ -233,7 +234,7 @@ test('invoice confirmation updates stock, stage cost and controlled OS consumpti
   await db.run("INSERT INTO invoices(id,order_id,status,supplier,invoice_number,issue_date,total_value,filename,original_name,user_id,created_at,data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",[invoiceId,id,'RASCUNHO','','',null,0,'fixture.pdf','fixture.pdf',adminUser.id,new Date().toISOString(),'{}']);
   const confirmation=await json('/notas-fiscais/'+invoiceId+'/confirmar','POST',{supplier:'Fornecedor Teste',invoice_number:'NF-ESTOQUE-1',issue_date:'2026-09-14',total_value:200,items:[{description:'Massa asfáltica',material_id:'material-1',stage:'execucao',purchased_quantity:100,used_quantity:10,unit:'kg',unit_value:2,product_total:200}]});
   assert.equal(confirmation.status,200);assert.equal(confirmation.data.status,'CONFIRMADA');
-  assert.equal((await json('/almoxarifado','GET',undefined,reader)).status,403);
+  assert.equal((await json('/almoxarifado','GET',undefined,reader)).status,200);
   let inventory=(await json('/almoxarifado')).data;let material=inventory.materials.find(item=>item.id==='material-1');assert.equal(material.stock,90);assert.equal(material.average_cost,2);
   let detail=(await json('/ordens-servico/'+id)).data;assert.equal(detail.cost_by_stage.find(row=>row.stage==='execucao').value,20);
   assert.equal((await attach('/ordens-servico/'+id,'antes')).status,200);assert.equal((await json('/ordens-servico/'+id+'/iniciar','POST',{lat:-33.1,lng:-48.6})).status,200);
@@ -404,7 +405,7 @@ test('inventory calculates balances from full SQL history while listing bounded 
   const summary=warehouse.data.materials.find(m=>m.id===material.data.id);assert.equal(summary.stock,210);assert.equal(summary.average_cost,3);assert.equal(summary.stock_value,630);
   const path='/almoxarifado/movimentos?limit=50&material_id='+material.data.id;const seen=[];let cursor='';do{const r=await json(path+(cursor?'&cursor='+encodeURIComponent(cursor):''));assert.equal(r.status,200);assert.ok(r.data.items.length<=50);seen.push(...r.data.items.map(x=>x.id));cursor=r.data.next_cursor;}while(cursor);
   assert.equal(seen.length,105);assert.equal(new Set(seen).size,105);
-  assert.equal((await json(path,'GET',undefined,reader)).status,403);
+  assert.equal((await json(path,'GET',undefined,reader)).status,200);
   assert.equal((await json(path,'GET',undefined,field)).status,403);
   assert.equal((await json(path+'&type=saida')).data.items.length,0);
 });
@@ -428,7 +429,7 @@ test('territorial summary uses linked OS data and authenticated evidence without
   assert.ok(result.orders[0].team); assert.ok(result.orders[0].before); assert.equal(result.orders[0].after,null);
   assert.deepEqual(Object.keys(result.orders[0]).sort(),['code','started_at','attendance_at','completed_at','expected_completion_at','team','before','after'].sort());
   assert.equal((await json(`/mapa/ocorrencias/${oc.id}/resumo`,'GET',undefined,null)).status,401);
-  assert.equal((await json(`/mapa/ocorrencias/${oc.id}/resumo`,'GET',undefined,field)).data.orders.length,0);
+  assert.equal((await json(`/mapa/ocorrencias/${oc.id}/resumo`,'GET',undefined,field)).status,403);
   await json(`/ordens-servico/${id}/assumir`,'POST',{});
   await json(`/ordens-servico/${id}/iniciar`,'POST',{lat:-32.4,lng:-48.6});
   await attach(`/ordens-servico/${id}`,'depois');

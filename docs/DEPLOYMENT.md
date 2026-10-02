@@ -77,7 +77,7 @@ Push exige as três variáveis VAPID, HTTPS, permissão por aparelho e navegador
 
 ## Atualizar e preservar dados
 
-`docker compose up -d --build` substitui a aplicação e mantém os volumes. Não use `docker compose down -v` em uma instalação com registros que devem ser preservados. Faça backup consistente antes da atualização, registre revisão Git/imagem/configuração e confira migrations aplicáveis. Versões 1–7 são executadas/verificadas automaticamente na inicialização.
+`docker compose up -d --build` substitui a aplicação e mantém os volumes. Não use `docker compose down -v` em uma instalação com registros que devem ser preservados. Faça backup consistente antes da atualização, registre revisão Git/imagem/configuração e confira migrations aplicáveis. Versões 1–9 são executadas/verificadas automaticamente na inicialização.
 
 | Versão | Conteúdo vigente |
 | --- | --- |
@@ -88,8 +88,10 @@ Push exige as três variáveis VAPID, HTTPS, permissão por aparelho e navegador
 | 5 | version em occurrences/orders/action_plans |
 | 6 | Índices de paginação/filtros/auditoria/relacionamentos/consumo |
 | 7 | Índices de paginação e FKs dos movimentos de estoque |
+| 8 | Inicialização das liberações individuais de módulos |
+| 9 | Progresso versionado e eventos internos de onboarding |
 
-Versões 2–7 são transacionais e registradas após sucesso, em `server/db.js`; não há diretório `migrations/`, CLI separado ou downgrade automatizado. Não editar migrations antigas para futuras mudanças; adicionar versão aditiva e verificar em instalação existente. Scripts em `scripts/` que reescrevem permissões/perfis não fazem parte deste procedimento nem de migrations ativas.
+Versões 2–8 são transacionais e registradas após sucesso. A versão 9 registra a criação idempotente das tabelas de onboarding no esquema base. Implementação em `server/db.js`; não há diretório `migrations/`, CLI separado ou downgrade automatizado. Não editar migrations antigas para futuras mudanças; adicionar versão aditiva e verificar em instalação existente. Scripts em `scripts/` que reescrevem permissões/perfis não fazem parte deste procedimento nem de migrations ativas.
 
 Após atualizar: verificar logs/healthcheck, login, catálogo, programação, evidência, conclusão/validação, nota/estoque e push configurado; comparar dados preservados. Se falhar, interromper tráfego e investigar; voltar somente para imagem compatível com o esquema aplicado ou restaurar o conjunto banco+arquivos/configuração da cópia anterior. Não pressupor rollback de schema ao trocar imagem.
 

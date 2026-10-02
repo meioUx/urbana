@@ -1,3 +1,6 @@
+import {registerOnboarding,onboardingState} from './onboarding.js';
+import {MASTER_EMAIL,isMasterUser,canPerformAction,moduleCatalog,defaultModules,hasModuleAccess,apiModules} from '../shared/authorization.mjs';
+import {userModules,saveModules} from './user-permissions.js';
 import { createUploadGuard } from "./modules/files/upload-limit.js";
 import { createFileStorage } from "./modules/files/storage.js";
 import { listRecords } from "./modules/listing/index.js";
@@ -97,6 +100,15 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       const task = queue.then(async () => {
         if (write) { req.rollbackFiles = []; await db.exec("BEGIN"); }
         try {
+          // Recheck inside the request queue so revocations take effect before writes.
+          if(req.user) {
+          const currentUser=await db.get('SELECT id,name,email,role,team_id FROM users WHERE id=?',[req.user.id]);
+          req.user={...currentUser,modules:await userModules(db,currentUser)};
+          if(req.requiredAction&&!canPerformAction(req.user,req.requiredAction))fail(403,'Seu perfil não permite esta ação.');
+          const required=apiModules(req.path,req.method);
+          if(required && !required.some(m=>hasModuleAccess(req.user,m)))fail(403,'Módulo não autorizado.');
+          if(req.user.role==='Consulta' && !['GET','HEAD'].includes(req.method) && !req.path.startsWith('/api/auth/') && req.path!=='/api/onboarding')fail(403,'Perfil somente leitura.');
+          }
           const wip = write ? await kanban.snapshot() : null;
           if (write && req.body?.kanban_expected_status) {
             const match = req.path.match(/^\/api\/(ocorrencias|ordens-servico)\/([^/]+)\//);
@@ -151,10 +163,10 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       after ? JSON.stringify(after) : null,
       now(),
     ]);
-  const allow = (action) => (req, res, next) =>
-    permissions[action].includes(req.user.role)
-      ? next()
-      : res.status(403).json({ error: "Seu perfil não permite esta ação." });
+  const allow=(action)=>(req,res,next)=>{
+    req.requiredAction=action;
+    return canPerformAction(req.user,action)?next():res.status(403).json({error:'Seu perfil não permite esta ação.'});
+  };
   const accessOrder = async (req, id) => {
     const o = await entity("orders", id);
     if (!canAccessOrder(req.user, o))
@@ -283,7 +295,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         [tokenHash(token), now()],
       );
       if (!u) return res.status(401).json({ error: "Sessão expirada." });
-      req.user = u;
+      req.user = {...u, modules:await userModules(db,u)};
       req.sessionToken = tokenHash(token);
       next();
     } catch (e) {
@@ -294,6 +306,13 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
     "/api/auth/me",
     route((req) => ({ user: req.user })),
   );
+  app.use('/api', (req,res,next)=>{
+    const required=apiModules(req.path,req.method);
+    if(required && !required.some(m=>hasModuleAccess(req.user,m)))return res.status(403).json({error:'Módulo não autorizado.'});
+    if(req.user.role==='Consulta' && !['GET','HEAD'].includes(req.method) && !req.path.startsWith('/auth/') && req.path!=='/onboarding')return res.status(403).json({error:'Perfil somente leitura.'});
+    next();
+  });
+  registerOnboarding(app,db,{route,fail});
   kanban.register(app, { route, audit, allow });
   app.post(
     "/api/auth/logout",
@@ -310,6 +329,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       );
       return {
         user: req.user,
+        onboarding:await onboardingState(db,req.user),
         catalogs: (await db.all("SELECT * FROM catalogs")).map(unpack),
         settings,
         kanban: await kanban.read(),
@@ -1182,6 +1202,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           password: z.string().min(10).max(200),
           role: z.enum(roles),
           team_id: z.string().nullable().optional(),
+          modules: z.array(z.string()).optional(),
         })
         .parse(req.body);
       if (data.role === "Equipe de Campo" && !data.team_id)
@@ -1193,6 +1214,10 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         ])
       )
         fail(409, "E-mail já cadastrado.");
+      if(data.email.toLowerCase()===MASTER_EMAIL && data.role!=="Administrador")fail(400,"A conta master deve manter o perfil Administrador.");
+      const identity={email:data.email,role:data.role};
+      const modules=isMasterUser(identity)?moduleCatalog.map(m=>m.key):[...new Set(data.modules ?? defaultModules(data.role))];
+      if(modules.some(m=>!hasModuleAccess({...identity,modules},m)))fail(400,'Módulo incompatível com o perfil.');
       const id = randomUUID();
       await db.run("INSERT INTO users VALUES(?,?,?,?,?,?)", [
         id,
@@ -1202,13 +1227,40 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         data.role,
         data.team_id || null,
       ]);
+      await saveModules(db,{id,role:data.role},modules);
       await audit(req, "user", id, "Usuário criado", null, {
+        modules,
         name: data.name,
         role: data.role,
       });
       return { id };
     }, true),
   );
+  app.get('/api/users/:id/permissions',allow('admin'),route(async req=>{
+    const user=await entity('users',req.params.id);
+    return {user:{id:user.id,name:user.name,email:user.email,role:user.role,team_id:user.team_id},modules:await userModules(db,user),catalog:moduleCatalog};
+  }));
+  app.patch('/api/users/:id',allow('admin'),route(async req=>{
+    const old=await entity('users',req.params.id);
+    const data=z.object({name:text,email:z.string().email(),role:z.enum(roles),team_id:z.string().nullable(),modules:z.array(z.string())}).strict().parse(req.body);
+    if(data.email.toLowerCase()===MASTER_EMAIL && data.role!=="Administrador")fail(400,"A conta master deve manter o perfil Administrador.");
+    if(isMasterUser(old)) {
+      if(data.email.toLowerCase()!==MASTER_EMAIL || data.role!=="Administrador")fail(403,"O e-mail e o perfil da conta master de manutenção não podem ser alterados.");
+      data.modules=moduleCatalog.map(m=>m.key);
+    }
+    if(old.id===req.user.id && (data.role!==old.role || JSON.stringify([...data.modules].sort())!==JSON.stringify([...req.user.modules].sort())))fail(403,'Não é permitido alterar o próprio perfil ou módulos.');
+    if(data.modules.some(m=>!hasModuleAccess({...data,modules:data.modules},m)))fail(400,'Módulo incompatível com o perfil.');
+    if(data.role==='Equipe de Campo'&&!data.team_id)fail(400,'Selecione a equipe do usuário.');
+    if(data.team_id)await catalog(data.team_id,'equipes');
+    const duplicate=await db.get('SELECT id FROM users WHERE email=? AND id<>?',[data.email.toLowerCase(),old.id]);
+    if(duplicate)fail(409,'E-mail já cadastrado.');
+    const previous=await userModules(db,old);
+    await db.run('UPDATE users SET name=?,email=?,role=?,team_id=? WHERE id=?',[data.name,data.email.toLowerCase(),data.role,data.team_id,old.id]);
+    await saveModules(db,{id:old.id,role:data.role},[...new Set(data.modules)]);
+    await audit(req,'user',old.id,'Acessos do usuário atualizados',{name:old.name,role:old.role,team_id:old.team_id,modules:previous},data);
+    return {id:old.id};
+  },true));
+  app.patch('/api/users/:id/permissions',allow('admin'),route(async req=>{fail(400,'Utilize a edição de usuário com módulos compatíveis. Permissões funcionais não podem ser delegadas.');}));
   app.patch(
     "/api/settings",
     allow("admin"),

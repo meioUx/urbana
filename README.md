@@ -35,6 +35,7 @@ Para compreender o produto e sua arquitetura:
 
 - [Contexto mestre](docs/URBANA-CONTEXTO-MESTRE.md)
 - [API](docs/API.md)
+- [Onboarding e treinamento por perfil](docs/ONBOARDING.md)
 - [Implantação](docs/DEPLOYMENT.md)
 - [Changelog](docs/CHANGELOG.md)
 - [Decisões arquiteturais](docs/DECISIONS.md)
@@ -65,3 +66,9 @@ npm.cmd run test:kanban
 ```
 
 API/regras e scripts de navegador usam bancos temporários isolados. Navegador inicia servidor compilado e salva capturas em test-results/. Cobertura inclui autenticação, permissões, ciclo, evidências, auditoria, rollback, idempotência, planejamento, notas/estoque, setor e Kanban. Execução local não homologa Docker, PostgreSQL/PostGIS real, push externo ou carga municipal; resultados históricos estão no Changelog.
+
+## Autorização por usuário
+
+Somente usuários com perfil Administrador podem criar usuários, alterar perfis e gerenciar liberações de módulos. O acesso a módulos não concede poderes adicionais ao perfil. O ambiente `/campo` é exclusivo do perfil Equipe de Campo. Consulte [a matriz, migração e contratos de autorização](docs/AUTORIZACAO.md).
+
+A conta `admin@urbana.local` é o acesso master de manutenção: todos os módulos permanecem liberados, incluindo `/campo`. Seu e-mail e perfil são protegidos na gestão de usuários. [Detalhes](docs/AUTORIZACAO.md#conta-master-de-manutenção).

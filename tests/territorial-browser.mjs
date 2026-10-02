@@ -1,3 +1,4 @@
+import {skipInitialOnboarding} from './onboarding-fixture.mjs';
 import assert from "node:assert/strict";
 import express from "express";
 import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
@@ -9,7 +10,7 @@ import { seed } from "../server/seed.js";
 import { createApp } from "../server/app.js";
 const temp = mkdtempSync(join(tmpdir(),"urbana-territorial-"));
 process.env.DATA_DIR=temp;process.env.DEMO_DATA="true";process.env.ADMIN_PASSWORD="Map@Test2026";delete process.env.DATABASE_URL;
-const db=await openDatabase();await seed(db);
+const db=await openDatabase();await seed(db);await skipInitialOnboarding(db);
 const app=createApp(db);app.use(express.static(resolve("dist")));app.get("/{*path}",(req,res)=>res.sendFile(resolve("dist/index.html")));
 const server=app.listen(0,"127.0.0.1");await new Promise(r=>server.once("listening",r));
 const base=`http://127.0.0.1:${server.address().port}`;

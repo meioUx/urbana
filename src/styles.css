@@ -1821,3 +1821,15 @@ textarea {
 .demand-queue button, .dispatch-optional summary { min-height: 44px; }
 .dispatch-optional { margin: 12px 0 20px; border: 1px solid #d5dfd9; border-radius: 10px; padding: 0 12px; }
 .dispatch-optional summary { display: list-item; padding: 12px 0; cursor: pointer; color: #285a43; font-weight: 600; }
+
+.module-access { margin: 20px 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; }
+.module-access legend { padding: 0 6px; font-weight: 600; }
+.module-access-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.module-access .module-access-option { display: flex; flex-direction: row; align-items: center; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.module-access .module-access-option:has(input:checked) { background: #eef7f2; border-color: #86b4a0; }
+.module-access .module-access-option input { width: 17px; height: 17px; min-height: 17px; margin: 0; flex-shrink: 0; accent-color: var(--green); }
+@media (max-width: 600px) { .module-access-options { grid-template-columns: 1fr; } }
+
+.urbana-help-host{position:fixed;right:20px;bottom:20px;z-index:800;}.urbana-help-button{display:flex;align-items:center;gap:8px;min-height:44px;padding:10px 14px;color:var(--green);background:#fff;border:1px solid var(--border);border-radius:30px;box-shadow:0 4px 18px #173e2820;cursor:pointer;font-size:12px;font-weight:600}.urbana-help-button:focus-visible{outline:3px solid var(--green);outline-offset:3px}.onboarding-loading{position:fixed;right:20px;bottom:75px;z-index:900;background:#fff;padding:20px;border:1px solid var(--border);border-radius:12px;box-shadow:0 4px 18px #173e2820}@media(max-width:699px){.urbana-help-host{right:12px;bottom:calc(82px + env(safe-area-inset-bottom));}.urbana-help-button{padding:10px;}.urbana-help-button span{display:none;}}
+
+[data-guide] { scroll-margin-top: 90px; }

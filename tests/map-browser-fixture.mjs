@@ -3,7 +3,7 @@ export { expect } from "@playwright/test";
 const tile = '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#e8efea"/></svg>';
 export async function mockMapTiles(context) {
   // Runs before navigation. Blocks every OSM host, including redirects, and mocks
-  // external images for other configured tile providers. Service workers are disabled.
+  // external images for other configured tile providers. Service workers are blocked by default; offline tests may explicitly enable them.
   await context.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -22,7 +22,7 @@ export const chromium = {
     const browser = await realChromium.launch(options);
     const newContext = browser.newContext.bind(browser);
     browser.newContext = async (options = {}) => {
-      const context = await newContext({ ...options, serviceWorkers: "block" });
+      const context = await newContext({ ...options, serviceWorkers: options.serviceWorkers ?? "block" });
       await mockMapTiles(context);
       return context;
     };

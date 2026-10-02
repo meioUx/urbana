@@ -1,3 +1,5 @@
+import OnboardingEntry from "./onboarding/OnboardingEntry";
+import {isMasterUser,canPerformAction,moduleCatalog,defaultModules,canRoleAccessModule,hasModuleAccess,moduleForPath,landingModule} from "../shared/authorization.mjs";
 import { lazyModule } from "./shared/lazyModule";
 import { colors, labels } from "./shared/workflow";
 import TerritorialView from "./modules/map/TerritorialView";
@@ -54,6 +56,7 @@ import "./styles.css";
 type Row = { id: string; [key: string]: any };
 type Boot = {
   user: Row;
+  onboarding: any;
   catalogs: Row[];
   settings: any;
   roles: string[];
@@ -217,10 +220,10 @@ function Modal({
     </div>
   );
 }
-function App() {
+function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
   const [boot, setBoot] = useState<Boot | null>(null),
     [loading, setLoading] = useState(true),
-    [page, setPage] = useState(window.location.pathname === "/mapa" ? "map" : "dashboard"),
+    [page, setPage] = useState(moduleForPath(window.location.pathname) || "dashboard"),
     [mapOnly, setMapOnly] = useState(window.location.pathname === "/mapa"),
     [fieldMode, setFieldMode] = useState(window.location.pathname === "/campo"),
     [rows, setRows] = useState<Row[]>([]),
@@ -248,6 +251,32 @@ function App() {
     [syncError, setSyncError] = useState(""),
     [lastSync, setLastSync] = useState<string>(""),
     [syncing, setSyncing] = useState(false);
+  useEffect(()=>onBoot(boot),[boot,onBoot]);
+  const guideRequest=useRef(0);
+  useEffect(()=>{
+    const prepare=async(event:Event)=>{
+      const step=(event as CustomEvent).detail?.step;
+      if(!boot||!step||!hasModuleAccess(boot.user,step.module))return;
+      const generation=++guideRequest.current;
+      if(step.page==='field')return;
+      setMobile(false);setDetail(null);setModal(null);setMapOnly(!!step.fullMap);setFieldMode(false);setPage(step.page);
+      setQ('');setStatus(step.filter||'');setPriority('');setTeam('');setDeadline('');setCategory('');setNeighborhood('');setFrom('');setTo('');
+      history.replaceState(null,'',step.fullMap?'/mapa':step.path);
+      if(step.adminTab)setAdminTab(step.adminTab);
+      if(step.guideMode==='new-user'&&boot.user.role==='Administrador'&&hasModuleAccess(boot.user,'admin'))setModal({type:'user'});
+      if(step.detail){
+        const candidates=step.detail==='order'?orders:rows;
+        const record=candidates.find(r=>!step.states||step.states.includes(r.status));
+        if(record)try{
+          const data=await api('/'+(step.detail==='order'?'ordens-servico':'ocorrencias')+'/'+record.id);
+          if(generation===guideRequest.current)setDetail({type:step.detail,...data,initialTab:step.detailTab||'overview',guideKey:step.id,guideMode:step.guideMode});
+        }catch{/* Keep the real empty/list area available for educational guidance. */}
+      }
+    };
+    const end=()=>{guideRequest.current++;setModal(null);};
+    window.addEventListener('urbana:onboarding-navigate',prepare);window.addEventListener('urbana:onboarding-end',end);
+    return ()=>{window.removeEventListener('urbana:onboarding-navigate',prepare);window.removeEventListener('urbana:onboarding-end',end);};
+  },[boot,rows,orders]);
   const pagedScope = ["occurrences", "triagem", "orders"].includes(page);
   const [listPage, setListPage] = useState<any>({items:[],has_more:false,next_cursor:null});
   const [listCursor, setListCursor] = useState("");
@@ -285,7 +314,7 @@ function App() {
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [boot?.user.id,page,q,status,priority,category,neighborhood,from,to,lastSync]);
   useEffect(() => {
-    const pop = () => { setMapOnly(window.location.pathname === "/mapa"); setPage("map"); };
+    const pop = () => { setMapOnly(window.location.pathname === "/mapa"); setFieldMode(window.location.pathname === "/campo"); setPage(moduleForPath(window.location.pathname) || "dashboard"); };
     window.addEventListener("popstate",pop);
     return () => window.removeEventListener("popstate",pop);
   }, []);
@@ -295,20 +324,23 @@ function App() {
     if (b.user.role === "Equipe de Campo" || window.location.pathname === "/mapa") {
       if (b.user.role !== "Equipe de Campo") setLastSync(new Date().toISOString());
       setBoot(b);
+      if(b.user.role==='Equipe de Campo' && window.location.pathname==='/')history.replaceState(null,'','/campo');
       return;
     }
-    const [r, o, d, p] = await Promise.all([
-      api("/ocorrencias"),
-      api("/ordens-servico"),
-      api("/dashboard"),
-      api("/planejamento"),
+    const permitted=(modules:string[])=>modules.some(m=>hasModuleAccess(b.user,m));
+    const [r,o,d,p]=await Promise.all([
+      permitted(['occurrences','triagem','planning','kanban','orders','review','dashboard'])?api('/ocorrencias'):[],
+      permitted(['orders','planning','kanban','review','dashboard','sector-control'])?api('/ordens-servico'):[],
+      hasModuleAccess(b.user,'dashboard')?api('/dashboard'):null,
+      hasModuleAccess(b.user,'planning')?api('/planejamento'):null,
     ]);
+    if (!boot && window.location.pathname==='/') setPage(landingModule(b.user)||'none');
     setBoot(b);
     setRows(r);
     setOrders(o);
     setDashboard(d);
     setPlanning(p);
-    if (b.user.role === "Administrador") {
+    if (hasModuleAccess(b.user,"admin")) {
       setUsers(await api("/users"));
     }
     setLastSync(new Date().toISOString());
@@ -333,24 +365,7 @@ function App() {
     const timer = setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
-  const can = (action: string) =>
-    !!boot &&
-    (
-      {
-        create: [
-          "Administrador",
-          "Gestor",
-          "Triagem",
-          "Fiscalização",
-          "Equipe de Campo",
-        ],
-        classify: ["Administrador", "Gestor", "Triagem"],
-        schedule: ["Administrador", "Gestor"],
-        execute: ["Administrador", "Gestor", "Equipe de Campo"],
-        validate: ["Administrador", "Gestor", "Fiscalização"],
-        admin: ["Administrador"],
-      } as Record<string, string[]>
-    )[action].includes(boot.user.role);
+  const can=(action:string)=>!!boot && canPerformAction(boot.user,action) && ({create:['occurrences','field'],classify:['triagem'],schedule:['orders','planning','materials','sector-control'],execute:['field'],validate:['review'],admin:['admin']} as Record<string,string[]>)[action]?.some(m=>hasModuleAccess(boot.user,m));
   const catalogs = (kind: string) =>
     boot?.catalogs.filter((c) => c.kind === kind) || [];
   const name = (id: string) =>
@@ -391,6 +406,8 @@ function App() {
       history.replaceState(null, "", "/campo");
       return;
     }
+    if(!boot || !hasModuleAccess(boot.user,value))return;
+    history.pushState(null,"",moduleCatalog.find(m=>m.key===value)?.path||"/");
     setPage(value);
     setQ("");
     setStatus("");
@@ -492,6 +509,13 @@ function App() {
         }}
       />
     );
+  const available=moduleCatalog.filter(m=>hasModuleAccess(boot.user,m.key));
+  const accessNotice=(message:string)=><div className="login-page"><section className="login-card"><h1>{message}</h1><p>{message === "Sem módulos disponíveis" ? "Seu usuário não possui módulos liberados no momento. Entre em contato com o administrador do sistema." : "Seu usuário não possui acesso a este ambiente. Entre em contato com o administrador do sistema."}</p><button className="button secondary" onClick={()=>{const first=landingModule(boot.user);setPage(first||'none');setFieldMode(first==='field');history.replaceState(null,'',moduleCatalog.find(m=>m.key===first)?.path||'/');}}>Ir para meus módulos</button><button className="button secondary" onClick={async()=>{await api('/auth/logout','POST');setBoot(null);history.replaceState(null,'','/');}}>Sair</button></section></div>;
+  if(!available.length)return accessNotice('Sem módulos disponíveis');
+  const requestedModule=moduleForPath(window.location.pathname);
+  if(window.location.pathname!=='/' && requestedModule && !hasModuleAccess(boot.user,requestedModule))return accessNotice('Acesso negado');
+  if(fieldMode && !hasModuleAccess(boot.user,'field'))return accessNotice('Acesso negado');
+  if(boot.user.role==='Equipe de Campo' && !hasModuleAccess(boot.user,'field'))return accessNotice('Sem módulos disponíveis');
   if (boot.user.role === "Equipe de Campo" || fieldMode)
     return (
       <Operator
@@ -509,7 +533,7 @@ function App() {
         }}
       />
     );
-  const nav: [string, string, typeof MapIcon][] = [
+  const allNav: [string, string, typeof MapIcon][] = [
     ["dashboard", "Visão geral", LayoutDashboard],
     ["map", "Mapa territorial", MapIcon],
     ["occurrences", "Ocorrências", MapPin],
@@ -533,9 +557,11 @@ function App() {
         ]
       : []),
   ];
+  const nav=allNav.filter(([key])=>hasModuleAccess(boot.user,key));
+  if(!hasModuleAccess(boot.user,page))return accessNotice('Acesso negado');
   const title = nav.find((n) => n[0] === page)?.[1] || "Visão geral";
   const filters = (
-    <div className="filters">
+    <div className="filters" data-guide="filters">
       <div className="search">
         <Search size={17} />
         <input
@@ -722,7 +748,7 @@ function App() {
           ))}
         </tbody>
       </table>
-      {!data.length && <Empty text="Nenhuma ocorrência encontrada." />}
+      {!data.length && <Empty text="Nenhuma ocorrência encontrada. As demandas registradas aparecerão aqui para consulta e análise; confira também os filtros." />}
     </div>
   );
   return (
@@ -811,7 +837,7 @@ function App() {
           </div>
         </header>
         <main>
-          <div className={`page-heading ${page === "kanban" ? "kanban-heading" : ""}`}>
+          <div data-guide="page-heading" className={`page-heading ${page === "kanban" ? "kanban-heading" : ""}`}>
             <div>
               <p className="eyebrow">
                 {page === "dashboard"
@@ -895,7 +921,7 @@ function App() {
           {page === "dashboard" && dashboard && <OperationsDashboard rows={rows} orders={orders} boot={boot} lastSync={lastSync} syncError={syncError} syncing={syncing} onRefresh={async () => { setSyncing(true); try { await refresh(); } catch (e: any) { setSyncError(e.message); } finally { setSyncing(false); } }} />}
           {["occurrences", "triagem"].includes(page) && (
             <>
-              {page === "triagem" && <section className="demand-queue" aria-label="Filas de triagem"><p>Analise a demanda e depois escolha quando atender. Planejamento é opcional para comparar obras e agrupar demandas da mesma via.</p><div className="form-actions">{[["IDENTIFICADA", "A analisar"], ["EM_TRIAGEM", "Prontas para programar"], ["", "Todas da triagem"]].map(([value, title]) => <button key={value} type="button" className={`button ${status === value ? "primary" : "secondary"}`} aria-pressed={status === value} onClick={() => setStatus(value)}>{title} ({rows.filter(r => value ? r.status === value : ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)).length})</button>)}</div></section>}
+              {page === "triagem" && <section data-guide="triage-queue" className="demand-queue" aria-label="Filas de triagem"><p>Analise a demanda e depois escolha quando atender. Planejamento é opcional para comparar obras e agrupar demandas da mesma via.</p><div className="form-actions">{[["IDENTIFICADA", "A analisar"], ["EM_TRIAGEM", "Prontas para programar"], ["", "Todas da triagem"]].map(([value, title]) => <button key={value} type="button" className={`button ${status === value ? "primary" : "secondary"}`} aria-pressed={status === value} onClick={() => setStatus(value)}>{title} ({rows.filter(r => value ? r.status === value : ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)).length})</button>)}</div></section>}
               {filters}
               <div className="results-count">{filtered.length} ocorrências nesta página</div>
               {pageControls}
@@ -906,7 +932,7 @@ function App() {
           {page === "map" && (
             <>
               {filters}
-              <div className="map-layout">
+              <div className="map-layout" data-guide="map">
                 <div>
                   <GeoMap
                     rows={filtered}
@@ -955,7 +981,7 @@ function App() {
           )}
           {page === "kanban" && <TeamKanban rows={rows} orders={orders} boot={boot} can={can} onOpen={openDetail} api={api} onRefresh={refresh} />}
           {page === "review" && (
-            <div className="planning-page">
+            <div data-guide="review" className="planning-page">
               <div className="notice">
                 <ShieldCheck />
                 <span>
@@ -992,7 +1018,7 @@ function App() {
               </div>
               {!orders.some((o) =>
                 ["AGUARDANDO_VALIDACAO", "DEVOLVIDA"].includes(o.status),
-              ) && <Empty text="Nenhum serviço aguardando análise." />}
+              ) && <Empty text="Nenhum serviço aguardando validação. Os serviços enviados pelas equipes aparecerão aqui para conferência." />}
             </div>
           )}
           {page === "planning" && (
@@ -1064,13 +1090,13 @@ function App() {
                   </tbody>
                 </table>
                 {!filteredOrders.length && (
-                  <Empty text="Nenhuma ordem de serviço encontrada." />
+                  <Empty text="Nenhuma ordem de serviço encontrada. Os atendimentos programados aparecerão aqui; ajuste os filtros para consultar outras situações." />
                 )}
               </div>
             </>
           )}
           {page === "teams" && (
-            <div className="team-grid">
+            <div className="team-grid" data-guide="teams">
               {catalogs("equipes").map((t) => (
                 <article className="team-card" key={t.id}>
                   <div className="section-heading">
@@ -1145,7 +1171,7 @@ function App() {
           )}
           {page === "materials" && (
             <>
-              {can("schedule") && <InventoryPanel api={api} catalogs={catalogs("materiais")} />}
+              <InventoryPanel api={api} catalogs={catalogs("materiais")} readOnly={!can("schedule")} />
               <div className="section-heading recent"><h2>Cadastros de apoio</h2></div>
               <div className="section-heading">
                 <h2>Materiais</h2>
@@ -1238,7 +1264,7 @@ function App() {
           )}
           {page === "admin" && (
             <>
-              <div className="tabs">
+              <div className="tabs" data-guide="admin-tabs">
                 {[
                   ["categorias", "Categorias e SLA"],
                   ["secretarias", "Secretarias"],
@@ -1336,7 +1362,7 @@ function App() {
                     <h2>Usuários e permissões</h2>
                     <button
                       className="button primary"
-                      onClick={() => setModal({ type: "user" })}
+                      data-guide="new-user" onClick={() => setModal({ type: "user" })}
                     >
                       <Plus size={16} />
                       Novo usuário
@@ -1350,6 +1376,7 @@ function App() {
                           <th>E-mail</th>
                           <th>Perfil</th>
                           <th>Equipe</th>
+                          <th>Ações</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1358,7 +1385,7 @@ function App() {
                             <td>{u.name}</td>
                             <td>{u.email}</td>
                             <td>{u.role}</td>
-                            <td>{name(u.team_id)}</td>
+                            <td>{name(u.team_id)}</td><td><button className="button secondary" data-guide="user-edit" onClick={async()=>{try {const data=await api(`/users/${u.id}/permissions`);setModal({type:"user",item:{...data.user,modules:data.modules}});}catch(e:any){setError(e.message);}}}>Editar usuário</button></td>
                           </tr>
                         ))}
                       </tbody>
@@ -1457,18 +1484,19 @@ function App() {
       {modal?.type === "user" && (
         <UserForm
           boot={boot}
+          user={modal.item}
           onClose={() => setModal(null)}
           onSave={async (data: any) => {
-            await api("/users", "POST", data);
+            await api(modal.item ? `/users/${modal.item.id}` : "/users", modal.item ? "PATCH" : "POST", data);
             await refresh();
             setModal(null);
-            setToast("Usuário criado.");
+            setToast(modal.item ? "Usuário atualizado." : "Usuário criado.");
           }}
         />
       )}
       {detail && (
         <Detail
-          key={detail.id}
+          key={detail.id+":"+(detail.guideKey||"")}
           value={detail}
           boot={boot}
           can={can}
@@ -1616,7 +1644,7 @@ function Assignment({ order, boot, onSave, busy }: any) {
     [operator, setOperator] = useState(order.assigned_user_id || "");
   const [date, setDate] = useState(order.scheduled_at || "");
   return (
-    <details className="assignment-form">
+    <details className="assignment-form" data-guide="assignment" open={order.guideKey ? true : undefined}>
       <summary>
         {order.status === "DEVOLVIDA"
           ? "Reprogramar serviço devolvido"
@@ -2125,7 +2153,7 @@ function Detail({
     [quantity, setQuantity] = useState(1),
     [equipment, setEquipment] = useState("");
   const [conflict, setConflict] = useState(false);
-  const [triageDecision, setTriageDecision] = useState(""), [rejectionReason, setRejectionReason] = useState("");
+  const [triageDecision, setTriageDecision] = useState(v.guideMode === "program" ? "program" : ""), [rejectionReason, setRejectionReason] = useState("");
   const cats = boot.catalogs.filter((c) => c.kind === "categorias"),
     sectors = boot.catalogs.filter((c) => c.kind === "setores");
   const [triage, setTriage] = useState({
@@ -2178,7 +2206,7 @@ function Detail({
   );
   return (
     <Modal title={v.code} onClose={onClose} wide>
-      <div className="detail-summary">
+      <div className="detail-summary" data-guide="detail-summary">
         <div>
           <Badge status={v.status} />
           <Priority value={v.priority} />
@@ -2301,7 +2329,7 @@ function Detail({
               <GeoMap rows={[v]} point={[v.lat, v.lng]} />
               {can("classify") &&
                 ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "" && (
-                  <form
+                  <form data-guide="classification"
                     onSubmit={(e) => {
                       e.preventDefault();
                       action("classificar", triage);
@@ -2381,13 +2409,13 @@ function Detail({
                     <div className="form-actions">
                       {can("schedule") && <button type="button" className="button primary" disabled={busy} onClick={() => { setTriageDecision("program"); setError(""); }}><Plus size={16}/>Gerar ordem de serviço</button>}
                       <button type="submit" className={`button ${can("schedule") ? "secondary" : "primary"}`} disabled={busy}><Check size={16}/>Concluir triagem e programar depois</button>
-                      <button type="button" className="button secondary" disabled={busy} onClick={() => { setTriageDecision("reject"); setError(""); }}>Recusar</button>
+                      <button type="button" className="button secondary" disabled={busy} data-guide="refuse" onClick={() => { setTriageDecision("reject"); setError(""); }}>Recusar</button>
                     </div>
                   </form>
                 )}
               {can("classify") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "reject" && <form className="assignment-form" onSubmit={e => { e.preventDefault(); execute(async () => { await api(`/ocorrencias/${v.id}/recusar`, "POST", { reason: rejectionReason, version: v.version }); setTriageDecision(""); }, "Demanda recusada. A justificativa foi registrada no histórico."); }}><h3>Justificativa de recusa</h3><Field label="Justificativa de recusa"><textarea autoFocus required maxLength={2000} rows={4} value={rejectionReason} onChange={e=>setRejectionReason(e.target.value)} placeholder="Informe o motivo da recusa desta demanda."/></Field><div className="form-actions"><button type="button" className="button secondary" disabled={busy} onClick={()=>setTriageDecision("")}>Voltar</button><button className="button primary" disabled={busy || !rejectionReason.trim()}>{busy ? "Enviando..." : "Enviar"}</button></div></form>}
               {can("schedule") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "program" && (
-                <form
+                <form data-guide="scheduling"
                   onSubmit={(e) => {
                     e.preventDefault();
                     execute(async () => {
@@ -2513,7 +2541,7 @@ function Detail({
           {isOrder && (
             <>
               <h3>Fotos do registro inicial</h3>
-              <div className="evidence-grid">
+              <div className="evidence-grid" data-guide="evidence">
                 {v.occurrences
                   .flatMap((o: any) => o.evidence || [])
                   .filter((e: any) => e.mime.startsWith("image/"))
@@ -2908,7 +2936,7 @@ function Detail({
               <button
                 className="button primary"
                 disabled={busy}
-                onClick={() => action("validar")}
+                data-guide="validate" onClick={() => action("validar")}
               >
                 <ShieldCheck size={17} />
                 Validar e concluir
@@ -2921,7 +2949,7 @@ function Detail({
               ["PROGRAMADA", "EM_DESLOCAMENTO", "EM_EXECUCAO"].includes(
                 v.status,
               ))) && (
-            <form
+            <form data-guide="reopen"
               onSubmit={(e) => {
                 e.preventDefault();
                 action(
@@ -2996,6 +3024,7 @@ function CatalogForm({
   kind: string;
   item?: Row;
   boot: Boot;
+  user?: any;
   onClose: () => void;
   onSave: (d: any) => Promise<void>;
 }) {
@@ -3213,11 +3242,13 @@ function CatalogForm({
   );
 }
 function UserForm({
+  user,
   boot,
   onClose,
   onSave,
 }: {
   boot: Boot;
+  user?: any;
   onClose: () => void;
   onSave: (d: any) => Promise<void>;
 }) {
@@ -3225,19 +3256,23 @@ function UserForm({
       name: "",
       email: "",
       password: "",
-      role: "Consulta",
-      team_id: null,
+      role: user?.role || "Consulta",
+      modules: user?.modules || defaultModules("Consulta"),
+      team_id: user?.team_id || null,
+      ...(user ? {name:user.name,email:user.email} : {}),
     }),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const master = isMasterUser(user);
   return (
-    <Modal title="Novo usuário" onClose={onClose}>
-      <form
+    <Modal title={user ? "Editar usuário" : "Novo usuário"} onClose={onClose}>
+      <form data-guide="user-fields"
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
           try {
-            await onSave(d);
+            const {password,...data}=d;
+            await onSave(user ? data : d);
           } catch (e: any) {
             setError(e.message);
           } finally {
@@ -3249,11 +3284,12 @@ function UserForm({
           ["name", "Nome", "text"],
           ["email", "E-mail", "email"],
           ["password", "Senha (mínimo 10 caracteres)", "password"],
-        ].map(([k, l, t]) => (
+        ].filter(([k])=>!user || k!=="password").map(([k, l, t]) => (
           <Field key={k} label={l}>
             <input
               required
               type={t}
+              readOnly={master && k === "email"}
               minLength={k === "password" ? 10 : 2}
               autoComplete={k === "password" ? "new-password" : "off"}
               value={d[k]}
@@ -3263,8 +3299,9 @@ function UserForm({
         ))}
         <Field label="Perfil">
           <select
+            disabled={master}
             value={d.role}
-            onChange={(e) => setD({ ...d, role: e.target.value })}
+            onChange={(e) => {const role=e.target.value; const removed=d.modules.filter((m:string)=>!canRoleAccessModule(role,m));setD({...d,role,team_id:role==='Equipe de Campo'?d.team_id:null,modules:user?d.modules.filter((m:string)=>canRoleAccessModule(role,m)):defaultModules(role)});setError(removed.length?'Acessos incompatíveis removidos: '+removed.map((m:string)=>moduleCatalog.find(c=>c.key===m)?.label).join(', '):'');}}
           >
             {boot.roles.map((r) => (
               <option key={r}>{r}</option>
@@ -3287,11 +3324,12 @@ function UserForm({
               ))}
           </select>
         </Field>
-        {error && <p className="form-error">{error}</p>}
+        <fieldset data-guide="module-access" className="module-access"><legend>Acesso aos módulos</legend><p className="muted">Módulos não concedem poderes adicionais ao perfil. Campo é exclusivo da Equipe de Campo, com exceção da conta master de manutenção.</p>{master && <p className="notice">Conta master de manutenção: todos os módulos permanecem liberados.</p>}<div className="module-access-options">{moduleCatalog.filter(m=>master || canRoleAccessModule(d.role,m.key)).map(m=><label key={m.key} className="module-access-option"><input type="checkbox" disabled={master} checked={master || d.modules.includes(m.key)} onChange={e=>setD({...d,modules:e.target.checked?[...d.modules,m.key]:d.modules.filter((key:string)=>key!==m.key)})}/><span>{m.label}</span></label>)}</div></fieldset>
+        {error && <p className={error.startsWith("Acessos incompatíveis removidos:") ? "notice" : "form-error"}>{error}</p>}
         <div className="form-actions">
           <button className="button primary" disabled={busy}>
             <Plus size={16} />
-            Criar usuário
+            {user ? "Salvar usuário" : "Criar usuário"}
           </button>
         </div>
       </form>
@@ -3310,7 +3348,7 @@ function SettingsForm({
     duplicate_radius: boot.settings.duplicate_radius,
   });
   return (
-    <form
+    <form data-guide="settings"
       className="settings-form"
       onSubmit={(e) => {
         e.preventDefault();
@@ -3344,6 +3382,7 @@ function SettingsForm({
   );
 }
 
+function App(){const [boot,setBoot]=useState<Boot|null>(null);return <><Workspace onBoot={setBoot}/>{boot&&<OnboardingEntry key={boot.user.id} boot={boot} api={api}/>}</>;}
 createRoot(document.getElementById("root")!).render(<App />);
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {

@@ -113,6 +113,18 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
     [online, setOnline] = useState(navigator.onLine),
     [filter, setFilter] = useState("active"),
     [notificationBusy, setNotificationBusy] = useState(false);
+  const [guideStep,setGuideStep]=useState<any>(null);
+  useEffect(()=>{
+    const navigate=(event:Event)=>{
+      const step=(event as CustomEvent).detail?.step;if(step?.page!=='field')return;
+      setTab('tasks');setFilter('active');setGuideStep(step);
+      const task=step.detail==='field'?list.orders.find((o:any)=>!step.states||step.states.includes(o.status)):null;
+      setOrderId(task?.id||null);
+    };
+    const end=()=>setGuideStep(null);
+    window.addEventListener('urbana:onboarding-navigate',navigate);window.addEventListener('urbana:onboarding-end',end);
+    return ()=>{window.removeEventListener('urbana:onboarding-navigate',navigate);window.removeEventListener('urbana:onboarding-end',end);};
+  },[list.orders]);
   const previous = useRef<string | null>(null),
     fetching = useRef(false);
   const refresh = async () => {
@@ -285,8 +297,9 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
         )}
         {orderId ? (
           <Task
-            key={orderId}
+            key={orderId+":"+(guideStep?.id||"")}
             id={orderId}
+            guideStep={guideStep}
             version={list.orders.find((o: any) => o.id === orderId)?.updated_at}
             boot={boot}
             api={api}
@@ -324,7 +337,7 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
               </article>
             ))}
             {!list.records.length && (
-              <div className="operator-empty">
+              <div className="operator-empty" data-guide="field-empty">
                 <MapPin />
                 <h2>Nenhum registro enviado</h2>
                 <p>Encontrou um problema? Use Registrar.</p>
@@ -333,7 +346,7 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
           </>
         ) : (
           <>
-            <div className="operator-page-heading">
+            <div className="operator-page-heading" data-guide="field-tasks">
               <div>
                 <p className="operator-eyebrow">SEU DIA EM CAMPO</p>
                 <h1>Minhas tarefas</h1>
@@ -377,7 +390,7 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
                 <button
                   className="operator-card operator-task"
                   key={o.id}
-                  onClick={() => setOrderId(o.id)}
+                  data-guide="field-task" onClick={() => setOrderId(o.id)}
                 >
                   <div className="operator-card-heading">
                     <span className="operator-status">{status[o.status]}</span>
@@ -418,7 +431,7 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
                 <CheckCircle2 />
                 <h2>
                   {filter === "active"
-                    ? "Nenhuma tarefa pendente"
+                    ? "Nenhuma tarefa no momento"
                     : "Nenhum envio por aqui"}
                 </h2>
                 <p>
@@ -799,7 +812,7 @@ function Register({ boot, api, onSaved }: any) {
     </>
   );
 }
-function Task({ id, version, boot, api, onBack, onChange }: any) {
+function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
   const errorRef = useRef<HTMLDivElement>(null);
   const [order, setOrder] = useState<any>(null),
     [error, setError] = useState(""),
@@ -808,7 +821,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
     [point, setPoint] = useState<any>({ lat: "", lng: "" }),
     [notes, setNotes] = useState(""),
     [reason, setReason] = useState(""),
-    [returning, setReturning] = useState(false);
+    [returning, setReturning] = useState(guideStep?.id === "return");
   useEffect(() => {
     if (error) {
       errorRef.current?.focus();
@@ -884,7 +897,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
         <ArrowLeft size={18} />
         Voltar às tarefas
       </button>
-      <div className="operator-page-heading">
+      <div className="operator-page-heading" data-guide="field-summary">
         <div>
           <p className="operator-eyebrow">ORDEM DE SERVIÇO</p>
           <h1>{order.code}</h1>
@@ -1005,13 +1018,13 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
         </section>
       ))}
       {isActive && (
-        <section className="operator-card">
+        <section className="operator-card" data-guide="field-arrival">
           <h2>{started ? "Execução no local" : "Chegada ao local"}</h2>
           {order.status === "PROGRAMADA" && (
             <button
               className="operator-button secondary"
               disabled={busy}
-              onClick={() => action("assumir")}
+              data-guide="field-assume" onClick={() => action("assumir")}
             >
               Estou a caminho
             </button>
@@ -1081,7 +1094,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
       {started && (
         <>
           <section className="operator-card">
-            <h2>Materiais utilizados</h2>
+            <h2 data-guide="field-materials">Materiais utilizados</h2>
             {order.materials.map((m: any) => (
               <p key={m.id}>
                 {name(m.material_id)} · {m.quantity}{" "}
@@ -1128,7 +1141,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
             </form>
           </section>
           <section className="operator-card">
-            <h2>Resultado do serviço</h2>
+            <h2 data-guide="field-result">Resultado do serviço</h2>
             <p>Depois de selecionar a foto, toque em &quot;Enviar foto depois&quot; e aguarde a confirmação &quot;Foto enviada&quot; antes de enviar para análise.</p>
             <Evidence
               key={`${id}:depois`}
@@ -1149,6 +1162,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
               <Field label="O que foi feito">
                 <textarea
                   required
+                  data-guide="field-report"
                   maxLength={2000}
                   value={notes}
                   onChange={(e) => {
@@ -1165,7 +1179,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
                 A gestão analisará as fotos e o relato antes de encerrar a
                 ordem.
               </p>
-              <button className="operator-button" disabled={busy}>
+              <button data-guide="field-send" className="operator-button" disabled={busy}>
                 <Send />
                 Enviar para análise
               </button>
@@ -1176,7 +1190,7 @@ function Task({ id, version, boot, api, onBack, onChange }: any) {
       {isActive && (
         <section className="operator-card">
           <button
-            className="operator-return"
+            className="operator-return" data-guide="field-return"
             onClick={() => setReturning(!returning)}
           >
             <TriangleAlert size={20} />
@@ -1281,7 +1295,7 @@ function Evidence({ stage, order, boot, point, api, onChange }: any) {
     }
   };
   return (
-    <div className="operator-upload">
+    <div className="operator-upload" data-guide={stage === "antes" ? "field-photo-before" : "field-photo-after"}>
       <h3>
         Foto {stage === "antes" ? "antes do serviço" : "depois do serviço"}
       </h3>

@@ -6,6 +6,10 @@ Registro das principais evoluções funcionais, técnicas e correções do siste
 
 ### Adicionado
 
+- Conta master `admin@urbana.local` com acesso permanente a todos os módulos, incluindo Campo, identidade protegida e módulos não revogáveis na administração. Outros usuários mantêm as restrições por perfil.
+
+- Onboarding e treinamento por perfil com boas-vindas, responsabilidade no fluxo, destaques reais, ajuda por tarefa, retomada, histórico de conclusão e progresso próprio por versão (migration 9). Filtra módulos e ações; não modifica dados operacionais. [Entrega e testes](ONBOARDING.md).
+
 - Contexto de distribuição com OS abertas, chamados distintos, execução, devoluções, validações, prazos e compromissos por data; seleção explícita de equipe e exclusão da própria OS na redistribuição.
 - Mapa de calor de concentração, alternância com pontos, filtros comuns e acesso aos detalhes pela lista.
 - Kanban com cartão de ocorrência sem OS e cartão único por OS agrupada; cores acompanhadas de nomes, filtros, ordenação persistida, arraste com formulário, alternativa por teclado/toque e WIP global transacional.

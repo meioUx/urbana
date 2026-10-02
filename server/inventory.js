@@ -12,7 +12,7 @@ export async function inventoryBalance(db, materialId) {
 
 export function registerInventory(app, db, helpers) {
   const { route, allow, audit, fail, now } = helpers;
-  app.get("/api/almoxarifado", allow("schedule"), route(async () => {
+  app.get("/api/almoxarifado", route(async () => {
     const materials = (await db.all("SELECT * FROM catalogs WHERE kind='materiais' ORDER BY id")).map((row) => ({ ...JSON.parse(row.data || "{}"), id: row.id }));
     const movements = await db.all("SELECT m.*,u.name AS user_name,o.code AS order_code FROM inventory_movements m JOIN users u ON u.id=m.user_id LEFT JOIN orders o ON o.id=m.order_id ORDER BY m.created_at DESC,m.id DESC LIMIT 100");
     const balances = await db.all("SELECT material_id,SUM(CASE WHEN type='entrada' THEN quantity ELSE -quantity END) AS stock,SUM(CASE WHEN type='entrada' THEN quantity ELSE 0 END) AS incoming_quantity,SUM(CASE WHEN type='entrada' THEN quantity*unit_cost ELSE 0 END) AS incoming_value FROM inventory_movements GROUP BY material_id");
@@ -38,7 +38,7 @@ export function registerInventory(app, db, helpers) {
     };
   }));
 
-  app.get("/api/almoxarifado/movimentos", allow("schedule"), route(req=>listRecords(db,"inventory_movements",req.query,req.user)));
+  app.get("/api/almoxarifado/movimentos", route(req=>listRecords(db,"inventory_movements",req.query,req.user)));
 
   app.post("/api/almoxarifado/movimentos", allow("schedule"), route(async (req) => {
     const data = z.object({ material_id: text, type: z.enum(["entrada", "saida"]), quantity: z.number().positive().max(1e9), unit_cost: z.number().min(0).max(1e9), notes: text }).parse(req.body);

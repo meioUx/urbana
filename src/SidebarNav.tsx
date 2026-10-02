@@ -50,7 +50,7 @@ export default function SidebarNav({ nav, page, rows, onNavigate }: any) {
         )
         .map((item: any) => entry(item))}
       <div className="nav-separator" />
-      {groups.map((group) => (
+      {groups.filter(group=>group.pages.some(id=>nav.some((item:any)=>item[0]===id))).map((group) => (
         <div className="nav-group" key={group.id}>
           <button
             className={`nav-item nav-group-toggle ${group.pages.includes(page) ? "group-active" : ""}`}

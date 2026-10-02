@@ -1,3 +1,4 @@
+import {initializeModules} from './user-permissions.js';
 import { randomUUID } from "node:crypto";
 import { hashPassword, now } from "./domain.js";
 
@@ -42,6 +43,7 @@ export async function seed(db) {
       role,
       team,
     ]);
+  await initializeModules(db);
   const catalogs = [
     ["secretary-1", "secretarias", { name: "Secretaria de Obras" }],
     [

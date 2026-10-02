@@ -1,3 +1,4 @@
+import {skipInitialOnboarding} from './onboarding-fixture.mjs';
 import { chromium } from "./map-browser-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -14,7 +15,7 @@ process.env.DEMO_DATA = "true";
 process.env.ADMIN_PASSWORD = "Urbana@2026";
 delete process.env.DATABASE_URL;
 const db = await openDatabase();
-await seed(db);
+await seed(db);await skipInitialOnboarding(db);
 const app = createApp(db);
 app.use(express.static(resolve("dist")));
 const server = app.listen(0, "127.0.0.1");

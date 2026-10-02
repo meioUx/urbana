@@ -4,11 +4,15 @@ Base `/api`. Corpos JSON, exceto anexos multipart. Sessão pelo cookie `urban_se
 
 Verificado contra `server/` em 2026-10-02. Modelo, estados, permissões e regras de negócio estão no [contexto mestre](URBANA-CONTEXTO-MESTRE.md); esta referência documenta os contratos HTTP vigentes, sem tratar roadmap como endpoint disponível.
 
+## Autorização
+
+Todas as rotas autenticadas exigem módulos compatíveis e liberados, além das ações funcionais. Somente Administrador cria/edita usuários e gerencia módulos; essa capacidade não pode ser delegada. `/campo` e ações de execução de OS são exclusivas da Equipe de Campo. Módulos não aumentam poderes do perfil; Consulta nunca realiza mutações operacionais; pode salvar o próprio progresso de treinamento em `/api/onboarding`. [Matriz e migração](AUTORIZACAO.md).
+
 ## Convenções, respostas e erros
 
 - Rotas da tabela abaixo são relativas a `/api`. `GET /healthz` está fora dessa base e não exige sessão. Demais rotas exigem sessão, exceto login.
 - Sucessos JSON usam **200**, inclusive criação; não presumir 201. Sem retorno específico: `{ "ok": true }`. Downloads retornam conteúdo do arquivo.
-- Login retorna `{id,name,email,role,team_id}` e `Set-Cookie`; `/auth/me` retorna o usuário. Bootstrap retorna `user`, `catalogs`, `operators` (preenchido somente para quem programa), `roles`, `priorities`, `settings` e `kanban`.
+- Login retorna `{id,name,email,role,team_id}` e `Set-Cookie`; `/auth/me` retorna o usuário com `modules`. Bootstrap retorna `user`, `catalogs`, `operators` (preenchido somente para quem programa), `roles`, `priorities`, `settings` e `kanban`.
 - Corpo JSON tem limite de 1 MB. Campos desconhecidos de objetos validados por Zod são descartados. Mutações com `Origin` de host diferente retornam 403; cliente de navegador deve enviar cookie da sessão.
 - Ocorrências, OS e auditoria aceitam `limit` (1–200) e `cursor` e retornam `{items,has_more,next_cursor}`. Sem esses parâmetros, mantém-se array legado (auditoria limitada a 300). Filtros são aplicados por SQL antes da paginação; cursor usa created_at/id e deve ser reutilizado com os mesmos filtros. Listas de ocorrências/triagem/OS na UI usam páginas de 50. Painel, mapa e planejamento ainda possuem consultas amplas separadas.
 - `version` é retornada por ocorrência, OS e plano. Classificação/recusa, transições/reprogramação exigem `version` lida no JSON; triagem integrada exige `triage.version`. Ausência retorna 428 VERSION_REQUIRED, formato inválido 400 INVALID_VERSION, versão antiga 409 VERSION_CONFLICT com `details.current_version`. Não há `If-Match` geral. `revision` do Kanban e `kanban_expected_status` são contratos específicos. `request_id` protege somente os envios documentados, não todas as mutações.
@@ -19,7 +23,7 @@ Verificado contra `server/` em 2026-10-02. Modelo, estados, permissões e regras
 | POST | /auth/login | `{email,password}` |
 | GET | /auth/me | Usuário autenticado |
 | POST | /auth/logout | Encerra sessão |
-| GET | /bootstrap | Usuário, catálogos, regras e configuração |
+| GET | /bootstrap | Usuário, catálogos, regras, configuração e estado do onboarding atual |
 | GET / POST | /ocorrencias | Listar / cadastrar |
 | GET / PATCH | /ocorrencias/:id | Detalhe / classificar em triagem |
 | GET | /ocorrencias/proximas?lat=&lng= | Registros no raio configurado |
@@ -49,7 +53,7 @@ Verificado contra `server/` em 2026-10-02. Modelo, estados, permissões e regras
 | GET | /planejamento | `{groups,plans}` |
 | POST | /planos-acao | Criar plano; contrato abaixo |
 | GET | /controle-setor?month=AAAA-MM&sector_id= | Controle mensal; Administrador/Gestor |
-| GET | /almoxarifado | Materiais, movimentos e notas; Administrador/Gestor |
+| GET | /almoxarifado | Materiais, movimentos e notas; módulo Materiais liberado, inclusive Consulta |
 | POST | /almoxarifado/movimentos | Entrada/saída manual; Administrador/Gestor |
 | POST | /ordens-servico/:id/notas-fiscais/extrair | PDF multipart → rascunho; Administrador/Gestor |
 | POST | /notas-fiscais/:id/confirmar | Confirmar dados/estoque; Administrador/Gestor |
@@ -189,7 +193,7 @@ Itens vinculados a material geram entradas e, se aplicados, saídas por OS/etapa
 - `/dashboard`: retorna indicadores (`total`, `open`, `emergency`, `executing`, `validation`, `completed`, `overdue`), `cost`, `actual_cost`, `cost_by_stage`, `byNeighborhood`, `byCategory`, `materials`, `orders` autorizadas e `occurrences`. É uma resposta ampla, não apenas agregados. A série diária da visão geral é derivada no frontend.
 - `/auditoria`: pesquisa por entity_type, entity_id, user_id, event (exatos) e from/to (dias inclusivos); limit/cursor retorna envelope paginado com usuário; sem paginação mantém array de até 300. Histórico por entidade vem nos detalhes.
 - Catálogos: GET retorna array; POST/PATCH retornam `{id,kind,...atributos}`. Escrita administrativa; `name` 2–120 caracteres. PATCH valida o objeto completo, não somente campos parciais. Categoria exige todas as prioridades de SLA (inteiros positivos até 8760 horas), ao menos uma subcategoria e os três booleanos de exigência. Materiais: `unit` 1–10 caracteres, `unit_cost` não negativo, `minimum_stock` não negativo (padrão zero). Equipes: `sector_id`, `leader` obrigatório e `members` inteiro 1–500. Equipamentos: `code` obrigatório. Departamento/setor exigem `parent_id` do tipo correto. Vínculos são validados.
-- `/users` POST: `{name,email,password,role,team_id?}`; senha 10–200 caracteres; Campo exige equipe. Retorna `{id}`; e-mail já cadastrado: 409. GET: array `{id,name,email,role,team_id}`. Não há endpoint ativo de edição individual de permissões.
+- `/users` POST: `{name,email,password,role,team_id?}`; senha 10–200 caracteres; Campo exige equipe. Retorna `{id}`; e-mail já cadastrado: 409. GET: array `{id,name,email,role,team_id}`. `modules?: string[]` define acessos compatíveis (ausente: sugestão; vazio: nenhum). `GET /users/:id/permissions` lê a configuração administrativa; `PATCH /users/:id` edita `{name,email,role,team_id,modules}` com auditoria. Todos exclusivos de Administrador; perfil/módulos próprios não podem ser alterados.
 - `/settings` PATCH: ambos `{municipality,duplicate_radius}` obrigatórios, raio 1–500 metros; retorna `{ok:true}`.
 - Exportação CSV é gerada pela interface a partir dos registros filtrados; não há endpoint dedicado de exportação.
 
@@ -206,3 +210,19 @@ Filtros comuns: q, status, priority, sector_id, from/to; ocorrência: category_i
 GET /api/almoxarifado/movimentos (Administrador/Gestor): limit/cursor e filtros material_id/order_id/user_id/type/from/to. Resposta paginada {items,has_more,next_cursor}; sem paginação, array legado limitado a 100. UI usa páginas de 50. GET /almoxarifado mantém seu contrato, mas calcula stock/average_cost/stock_value no SQL sobre todo o histórico, sem carregar todos os movimentos no JavaScript. Nenhuma reserva/transferência/inventário P2 criada nesta revisão.
 
 Uploads simultâneos são limitados a quatro por instância (configurável por maxConcurrentUploads na fábrica da aplicação) antes do Multer; excesso retorna 429 UPLOAD_BUSY, preservando a possibilidade de reenvio.
+
+## Onboarding e treinamento
+
+- `GET /api/onboarding`: estado próprio da versão atual e `tutorials` com progresso dos tutoriais individuais.
+- `PATCH /api/onboarding`: JSON estrito `{version: 1, tutorial_id: "main", event: "started", step_id: null}`. Eventos: `started`, `progress`, `skipped`, `completed`, `replayed`. `tutorial_id` pode ser `task:<id>`; `step_id` é opcional/nulo ou ID de etapa autorizada.
+- Sessão obrigatória; não recebe ID de outro usuário. O servidor valida perfil, módulos e ações do tutorial. Tutorial não autorizado retorna 403; versão, etapa ou campos inválidos retornam 400.
+- Resposta inclui `version`, `status`, datas e `step_id`. Sem progresso: `not_started`; pular: `skipped`; terminar: `completed`. Repetir preserva a primeira conclusão. Este endpoint não concede módulos nem altera a operação.
+- Estado inicial também em `bootstrap.onboarding`. [Arquitetura, fluxos e testes](ONBOARDING.md).
+
+## Conta master de manutenção
+
+Por definição, `admin@urbana.local` com perfil Administrador tem acesso permanente a todos os módulos do catálogo, incluindo /campo, e às ações de manutenção desses módulos. É a única exceção às restrições comuns de perfil/Campo. Novos módulos do catálogo ficam disponíveis automaticamente. Remover liberações persistidas não retira o acesso master; ao salvar essa conta, o servidor grava novamente todos os módulos.
+
+E-mail e perfil da conta são protegidos na edição administrativa. A interface mostra todos os módulos marcados e bloqueados para remoção. Nome pode ser editado. A autenticação, sessão, auditoria, validação de versão, estados, evidências, justificativas e demais regras operacionais continuam exigidas. Outros administradores permanecem sujeitos aos módulos liberados e não executam em Campo.
+
+A identidade é verificada no servidor a partir do usuário autenticado; informar o e-mail no corpo de uma requisição não concede acesso master. Implementação compartilhada: isMasterUser, canPerformAction e hasModuleAccess; userModules resolve todos os módulos do catálogo para essa conta sem depender de migração ou reaplicação do seed.

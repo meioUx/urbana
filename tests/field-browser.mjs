@@ -1,3 +1,4 @@
+import {skipInitialOnboarding} from './onboarding-fixture.mjs';
 import { navigate } from "./navigation.mjs";
 import { chromium } from './map-browser-fixture.mjs';
 import assert from 'node:assert/strict';
@@ -11,7 +12,7 @@ import { createApp } from '../server/app.js';
 mkdirSync('test-results',{recursive:true});
 const temp=mkdtempSync(join(tmpdir(),'urbana-field-browser-'));
 process.env.DATA_DIR=temp;process.env.DEMO_DATA='true';process.env.ADMIN_PASSWORD='Urbana@2026';delete process.env.DATABASE_URL;
-const db=await openDatabase();await seed(db);
+const db=await openDatabase();await seed(db);await skipInitialOnboarding(db);
 const app=createApp(db);app.use(express.static(resolve('dist')));app.get('/{*path}',(req,res)=>res.sendFile(resolve('dist/index.html')));
 const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
 const url=`http://127.0.0.1:${server.address().port}`;
@@ -20,7 +21,7 @@ const errors=[];
 const login=async(page,email)=>{await page.getByLabel('E-mail',{exact:true}).fill(email);await page.getByLabel('Senha',{exact:true}).fill('Urbana@2026');await page.getByRole('button',{name:'Entrar',exact:true}).click();};
 const photo={name:'evidencia-teste.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV6kAAAAASUVORK5CYII=','base64')};
 try {
- const fieldContext=await browser.newContext({viewport:{width:390,height:844},geolocation:{latitude:-30.1,longitude:-48.6},permissions:['geolocation']});
+ const fieldContext=await browser.newContext({serviceWorkers:"allow",viewport:{width:390,height:844},geolocation:{latitude:-30.1,longitude:-48.6},permissions:['geolocation']});
  const field=await fieldContext.newPage();field.on('pageerror',e=>errors.push(e.message));
  await field.goto(url+'/campo');await login(field,'campo@urbana.local');await field.getByRole('heading',{name:'Minhas tarefas',exact:true}).waitFor();
  assert.equal(await field.locator('.sidebar').count(),0);

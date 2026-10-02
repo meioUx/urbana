@@ -1,3 +1,4 @@
+import {skipInitialOnboarding} from './onboarding-fixture.mjs';
 import { chromium, expect } from "./map-browser-fixture.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -18,7 +19,7 @@ let db, server, browser;
 const errors = [];
 try {
   db = await openDatabase();
-  await seed(db);
+  await seed(db);await skipInitialOnboarding(db);
   for (let i = 0; i < 51; i++)
     await db.run(
       "INSERT INTO occurrences(id,code,category_id,sector_id,status,priority,lat,lng,created_at,updated_at,data) VALUES(?,?,?,?,?,?,?,?,?,?,?)",

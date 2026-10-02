@@ -91,17 +91,17 @@ Evidências: JPG, PNG, WebP, PDF ou MP4, até 15 MB; etapas registro, antes, dur
 
 | Ação | Administrador | Gestor | Triagem | Campo | Fiscalização | Consulta |
 | --- | --- | --- | --- | --- | --- | --- |
-| Consultar ocorrências/mapa | Sim | Sim | Sim | Sim | Sim | Sim |
+| Consultar ocorrências/mapa | Módulo liberado | Módulo liberado | Módulo liberado | Registros próprios e tarefas em /campo | Módulo liberado | Módulo liberado |
 | Registrar ocorrência | Sim | Sim | Sim | Sim | Sim | Não |
 | Classificar/recusar | Sim | Sim | Sim | Não | Não | Não |
 | Programar/cancelar OS, plano, almoxarifado/notas | Sim | Sim | Não | Não | Não | Não |
-| Executar OS | Sim | Sim | Não | Equipe/operador autorizado | Não | Não |
+| Executar OS | Não | Não | Não | Equipe/operador autorizado | Não | Não |
 | Validar/reabrir | Sim | Sim | Não | Não | Sim | Não |
 | Cadastros, usuários, configuração e auditoria global | Sim | Não | Não | Não | Não | Não |
 
 Reordenação do Kanban: administrador, gestor, triagem e fiscalização; limites WIP: administrador/gestor. Campo registra ocorrências, mas anexos de ocorrência são restritos aos registros próprios; anexos de OS dependem de autorização à ordem. Listas gerais de ocorrências são consultáveis pelos perfis; restrição de equipe/operador se aplica às OS, suas ações/anexos e projeções autorizadas em painel, planejamento e push.
 
-**Status: PLANEJADO / não integrado.** `server/user-permissions.js`, `src/PermissionForm.tsx` e scripts de alteração de permissões/perfis existem, mas não são usados pelo servidor/interface vigente. Não há migration 5 aplicada por `openDatabase`, endpoints ativos de permissões individuais nem três perfis substituindo os seis. Não executar scripts de transformação como parte de deploy.
+**Status: IMPLEMENTADO.** Perfil × módulos individuais persistidos × ações funcionais. Somente usuários com perfil Administrador podem criar usuários, alterar perfis e gerenciar liberações de módulos. O acesso a módulos não concede poderes adicionais ao perfil. O ambiente `/campo` é exclusivo do perfil Equipe de Campo, inclusive para execução de OS; gestores e administradores não entram nesse ambiente. Catálogo/matriz/ações em `shared/authorization.mjs`; migração 8 em `server/db.js`. Administração possui criação e edição de usuários/módulos, com auditoria. Não executar antigos scripts de transformação de permissões funcionais no deploy. Consulte [Autorização](AUTORIZACAO.md) para matriz, regras de migração e endpoints.
 
 Senhas: scrypt com salt aleatório e comparação em tempo constante. Sessão: oito horas, cookie urban_session HttpOnly e SameSite estrito, token armazenado como hash. Login tem limitação de tentativas. Mutações rejeitam Origin fornecido de host diferente; ausência de Origin não é rejeitada por essa checagem. Uploads têm nomes aleatórios, limite de tipo/tamanho e assinatura básica; não há análise antimalware completa. Anexos exigem autenticação/autorização. Produção e credenciais estão detalhadas em [Implantação](DEPLOYMENT.md).
 
@@ -170,7 +170,7 @@ Reservas, devoluções estruturadas, múltiplos almoxarifados, transferências e
 
 ## 8. Campo, offline e notificações
 
-**Status: IMPLEMENTADO / offline PARCIAL.** /campo possui Tarefas, Registrar, Meus registros; perfil Campo entra na interface móvel, gestores podem consultá-la. GPS/câmera dependem de permissão do dispositivo. “Como chegar” abre app de mapas, sem roteamento próprio.
+**Status: IMPLEMENTADO / offline PARCIAL.** /campo possui Tarefas, Registrar, Meus registros; somente perfil Equipe de Campo com módulo Campo liberado entra na interface móvel. GPS/câmera dependem de permissão do dispositivo. “Como chegar” abre app de mapas, sem roteamento próprio.
 
 Rascunhos por usuário em IndexedDB: campos/foto de registro, fotos antes/depois pendentes e relato. Envio manual; falhas preservam rascunho. request_id estável evita duplicidade de ocorrência/anexo nos reenvios suportados. Rascunho pertence ao navegador/aparelho e se perde ao limpar seus dados. Login, abertura de OS e gravações precisam de rede; não há cache autenticado de OS, execução offline completa ou sincronização em background. Service worker oferece página offline e push, sem cache de respostas autenticadas.
 
@@ -194,7 +194,7 @@ Push opcional: HTTPS, VAPID, compatibilidade e permissão do usuário. Assinatur
 
 users guarda perfil/equipe; sessions guarda hash do token e expiração. catalogs usa discriminador kind e atributos JSON em texto; secretaria/departamento/setor usam parent_id, categorias/equipes sector_id. API verifica tipos/vínculos. occurrences e orders mantêm campos indexáveis e atributos JSON; order_occurrences liga N:N. action_plans/action_plan_occurrences preservam reserva única. evidence é polimórfica por tipo/ID; consumption preserva custos; order_equipment liga recursos; invoices/invoice_items/inventory_movements registram notas/estoque. audit_logs é histórico imutável pela interface, settings configura município/raio/quadro; client_requests/push_subscriptions/push_jobs suportam campo. assets/maintenance_plans são tabelas reservadas sem telas/geração preventiva automática.
 
-Sem DATABASE_URL: SQLite/WAL e data/urban.sqlite; com DATABASE_URL: adaptador PostgreSQL, ponto geom gerado de lng/lat em SRID 4326 e índice GiST. Inicialização requer habilitar PostGIS. Trocar URL não transfere dados. Migrations vigentes **1–7**, em server/db.js/esquema base; não há diretório migrations/. Detalhes de atualização/backup/restauração em DEPLOYMENT.md.
+Sem DATABASE_URL: SQLite/WAL e data/urban.sqlite; com DATABASE_URL: adaptador PostgreSQL, ponto geom gerado de lng/lat em SRID 4326 e índice GiST. Inicialização requer habilitar PostGIS. Trocar URL não transfere dados. Migrations vigentes **1–9**, em server/db.js/esquema base; não há diretório migrations/. Detalhes de atualização/backup/restauração em DEPLOYMENT.md.
 
 Uma conexão e fila serial no processo evitam entrelaçamento; mutações operacionais com histórico/jobs usam transação. Não equivalem a locking distribuído. Upload ocorre antes do commit; limpeza de erro cobre fluxos tratados, mas falha entre disco e banco pode deixar órfãos. Vínculos polimórficos de arquivo e catálogos dependem de validação API, sem FK específica por tipo. FileStorage local/object injetável integrado aos anexos e notas; arquivos existentes preservados. Homologação real do provider externo pendente. Homologação real PostgreSQL/PostGIS e Docker não consta na base de testes.
 
@@ -786,3 +786,17 @@ React.lazy/Suspense por área (mapa, campo, planejamento, Kanban, auditoria, pai
 ## Validação final do checkpoint
 
 43 testes aprovados, 1 teste PostgreSQL/PostGIS não executado (preparado para execução posterior conforme usuário); build TypeScript/Vite aprovado, sem aviso de chunk acima de 500 kB; test:ui/test:field/test:kanban e node tests/p0-browser.mjs aprovados, sem erros de console. P0 parcial e P1/P2 não iniciados; ver RELATORIO-P0-P1-P2.md para matriz e pendências.
+
+## Onboarding por perfil — IMPLEMENTADO (2026-10-02)
+
+Primeiro acesso apresenta nome, perfil, cadeia Demanda → Triagem → Programação → Execução → Validação → Conclusão e participação do usuário. Treinamento de até seis etapas contextualiza tarefas, ações autorizadas, encaminhamento e exceções. Ajuda → Como usar o Urbana permite repetir o fluxo ou abrir tutorial individual. Progresso próprio persistido por versão; pular é diferente de concluir e repetir mantém a conclusão anterior.
+
+Conteúdo filtrado por perfil + módulos + ações na interface e na API. Campo permanece exclusivo em /campo; Consulta apenas consulta; Administração permanece exclusiva. Sem módulos não há tour automático. Treinamento não salva registros operacionais e não exige dados de demonstração. Migration 9 adiciona progresso/eventos internos. [Referência completa, arquivos e validações](ONBOARDING.md).
+
+## Conta master de manutenção
+
+Por definição, `admin@urbana.local` com perfil Administrador tem acesso permanente a todos os módulos do catálogo, incluindo /campo, e às ações de manutenção desses módulos. É a única exceção às restrições comuns de perfil/Campo. Novos módulos do catálogo ficam disponíveis automaticamente. Remover liberações persistidas não retira o acesso master; ao salvar essa conta, o servidor grava novamente todos os módulos.
+
+E-mail e perfil da conta são protegidos na edição administrativa. A interface mostra todos os módulos marcados e bloqueados para remoção. Nome pode ser editado. A autenticação, sessão, auditoria, validação de versão, estados, evidências, justificativas e demais regras operacionais continuam exigidas. Outros administradores permanecem sujeitos aos módulos liberados e não executam em Campo.
+
+A identidade é verificada no servidor a partir do usuário autenticado; informar o e-mail no corpo de uma requisição não concede acesso master. Implementação compartilhada: isMasterUser, canPerformAction e hasModuleAccess; userModules resolve todos os módulos do catálogo para essa conta sem depender de migração ou reaplicação do seed.

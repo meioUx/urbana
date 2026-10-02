@@ -17,3 +17,9 @@ CREATE INDEX IF NOT EXISTS idx_occurrences_location ON occurrences(lat, lng);
 CREATE INDEX IF NOT EXISTS idx_orders_team ON orders(team_id, status);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_evidence_entity ON evidence(entity_type, entity_id);
+
+CREATE TABLE IF NOT EXISTS user_module_permissions (user_id TEXT NOT NULL REFERENCES users(id), module TEXT NOT NULL, allowed INTEGER NOT NULL CHECK(allowed IN (0,1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(user_id,module));
+
+CREATE TABLE IF NOT EXISTS user_onboarding (user_id TEXT NOT NULL REFERENCES users(id), onboarding_version INTEGER NOT NULL, tutorial_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('started','skipped','completed')), started_at TEXT, skipped_at TEXT, completed_at TEXT, step_id TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(user_id,onboarding_version,tutorial_id));
+CREATE TABLE IF NOT EXISTS onboarding_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), onboarding_version INTEGER NOT NULL, tutorial_id TEXT NOT NULL, event TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_onboarding_events_user ON onboarding_events(user_id,created_at);

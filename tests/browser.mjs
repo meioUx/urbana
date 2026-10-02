@@ -1,3 +1,4 @@
+import {skipInitialOnboarding} from './onboarding-fixture.mjs';
 import { navigate } from "./navigation.mjs";
 import { chromium } from './map-browser-fixture.mjs';
 import assert from 'node:assert/strict';
@@ -11,7 +12,7 @@ import { createApp } from '../server/app.js';
 mkdirSync('test-results',{recursive:true});
 const temp=mkdtempSync(join(tmpdir(),'urbana-browser-'));
 process.env.DATA_DIR=temp;process.env.DEMO_DATA='true';process.env.ADMIN_PASSWORD='Urbana@2026';delete process.env.DATABASE_URL;
-const db=await openDatabase();await seed(db);
+const db=await openDatabase();await seed(db);await skipInitialOnboarding(db);
 const app=createApp(db);app.use(express.static(resolve('dist')));
 const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
 const testUrl=`http://127.0.0.1:${server.address().port}`;
