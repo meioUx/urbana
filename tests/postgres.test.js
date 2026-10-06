@@ -56,7 +56,7 @@ test(
       assert.equal(db.dialect, "postgres");
       assert.equal(
         (await db.all("SELECT version FROM schema_migrations")).length,
-        7,
+        10,
       );
       await db.run(
         "INSERT INTO occurrences(id,code,category_id,sector_id,status,priority,lat,lng,created_at,updated_at,data) VALUES(?,?,?,?,?,?,?,?,?,?,?)",

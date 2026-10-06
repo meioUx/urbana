@@ -2,6 +2,19 @@
 
 Registro das principais evoluções funcionais, técnicas e correções do sistema. O [contexto mestre](URBANA-CONTEXTO-MESTRE.md) explica o funcionamento atual; este arquivo registra o que mudou e a origem dos registros. Contagens de testes abaixo pertencem às respectivas verificações, não são metas ou garantias de homologação.
 
+## 2026-10-03
+
+### Adicionado
+
+- Sincronização do app de campo (aditiva; clientes que não enviam os campos novos mantêm o comportamento anterior): `request_id` idempotente em `assumir`/`iniciar`/`concluir`/`devolver` (resposta `replayed: true`, sem reaplicar após reprogramação) e no registro de material; `captured_at` (hora real do trabalho offline, validada entre 30 dias atrás e 5 min à frente) em transições, material e anexos; `assumed_by`/`assumed_by_name` informativos ao assumir.
+- Migration 10: coluna `evidence.captured_at` (SQLite e PostgreSQL, idempotente). Exigências de foto passam a usar `captured_at ?? created_at`.
+- Códigos estruturados nos erros existentes: `BEFORE_PHOTO_REQUIRED`, `AFTER_PHOTO_REQUIRED`, `MATERIAL_REQUIRED`, `INVALID_STATUS`, `RECORD_CLOSED`, `INVALID_DUPLICATE_LINK`, `ORDER_NOT_ACCESSIBLE`, `REQUEST_ID_REUSED`, `INVALID_CAPTURED_AT`. Mensagens e status inalterados.
+
+### Corrigido
+
+- Vínculo de duplicidade com `request_id` é idempotente (sem auditoria repetida) e a chave não pode mais criar ocorrência nova; quem vinculou pode anexar a foto de `registro` à ocorrência alvo.
+- Documentação de anexos: a resposta é `{ id }`.
+
 ## 2026-10-02
 
 ### Adicionado
