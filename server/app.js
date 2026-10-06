@@ -57,6 +57,37 @@ const occurrenceSchema = z.object({
 const fail = (status, message, details) => {
   throw Object.assign(new Error(message), { status, details });
 };
+// Same as fail, adding a stable machine-readable code for clients (field app sync).
+const failCode = (status, message, code, details) => {
+  throw Object.assign(new Error(message), { status, code, details });
+};
+const requestIdReused = () =>
+  failCode(409, "Identificador de envio já utilizado.", "REQUEST_ID_REUSED");
+// Optional idempotency key; absent values keep the legacy behavior untouched.
+const optionalRequestId = (value) =>
+  value === undefined || value === null || value === ""
+    ? undefined
+    : z.string().uuid().parse(value);
+const CAPTURE_FUTURE_MS = 5 * 60 * 1000;
+const CAPTURE_PAST_MS = 30 * 24 * 3600 * 1000;
+// Real time of field work (offline capture). Normalized to UTC ISO so string comparisons stay valid.
+const parseCapturedAt = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const valid =
+    typeof value === "string" &&
+    z.string().datetime({ offset: true }).safeParse(value).success;
+  const time = valid ? Date.parse(value) : NaN;
+  const current = Date.now();
+  if (
+    !Number.isFinite(time) ||
+    time > current + CAPTURE_FUTURE_MS ||
+    time < current - CAPTURE_PAST_MS
+  )
+    failCode(400, "Data e hora de captura inválida.", "INVALID_CAPTURED_AT");
+  return new Date(time).toISOString();
+};
+// Evidence time used by photo requirements: when it was captured, falling back to receipt time.
+const evidenceTime = (e) => e.captured_at || e.created_at;
 const tokenHash = (s) => createHash("sha256").update(s).digest("hex");
 const kinds = [
   "secretarias",
@@ -170,9 +201,19 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
   const accessOrder = async (req, id) => {
     const o = await entity("orders", id);
     if (!canAccessOrder(req.user, o))
-      fail(403, "Esta ordem pertence a outra equipe.");
+      failCode(403, "Esta ordem pertence a outra equipe.", "ORDER_NOT_ACCESSIBLE");
     return o;
   };
+  const clientRequest = (userId, requestId) =>
+    db.get("SELECT * FROM client_requests WHERE user_id=? AND request_id=?", [
+      userId,
+      requestId,
+    ]);
+  const saveClientRequest = (userId, requestId, type, entityId) =>
+    db.run(
+      "INSERT INTO client_requests(user_id,request_id,entity_type,entity_id) VALUES(?,?,?,?)",
+      [userId, requestId, type, entityId],
+    );
   const code = async (table, prefix) => {
     const base = `${prefix}-${new Date().getFullYear()}-`;
     const rows = await db.all(`SELECT code FROM ${table} WHERE code LIKE ?`, [
@@ -392,8 +433,10 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           [req.user.id, data.request_id],
         );
         if (previous) {
-          if (previous.entity_type !== "occurrence")
-            fail(409, "Identificador de envio já utilizado.");
+          // A link already registered with this key is replayed, never turned into a new occurrence.
+          if (previous.entity_type === "occurrence_link")
+            return { ...(await entity("occurrences", previous.entity_id)), linked: true };
+          if (previous.entity_type !== "occurrence") requestIdReused();
           return entity("occurrences", previous.entity_id);
         }
       }
@@ -416,7 +459,8 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         fail(409, "Possível ocorrência duplicada.", { nearby: active });
       if (data.duplicate_action === "link") {
         const target = active.find((o) => o.id === data.duplicate_id);
-        if (!target) fail(400, "Vínculo de duplicidade inválido.");
+        if (!target)
+          failCode(400, "Vínculo de duplicidade inválido.", "INVALID_DUPLICATE_LINK");
         await audit(
           req,
           "occurrence",
@@ -425,6 +469,8 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           null,
           { description: data.description, origin: data.origin },
         );
+        if (data.request_id)
+          await saveClientRequest(req.user.id, data.request_id, "occurrence_link", target.id);
         return { ...target, linked: true };
       }
       const id = randomUUID(),
@@ -456,12 +502,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       await audit(req, "occurrence", id, "Ocorrência registrada", null, extra);
 
       if (data.request_id)
-        await db.run("INSERT INTO client_requests VALUES(?,?,?,?)", [
-          req.user.id,
-          data.request_id,
-          "occurrence",
-          id,
-        ]);
+        await saveClientRequest(req.user.id, data.request_id, "occurrence", id);
       return entity("occurrences", id);
     }, true),
   );
@@ -470,8 +511,8 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
     const occurrence = await entity("occurrences", req.params.id);
     const linked = (await db.all("SELECT o.* FROM orders o JOIN order_occurrences r ON r.order_id=o.id WHERE r.occurrence_id=? ORDER BY o.created_at DESC,o.id", [occurrence.id])).map(unpack).filter(o => canAccessOrder(req.user, o));
     return { code: occurrence.code, address: occurrence.address, orders: await Promise.all(linked.map(async o => {
-      const photos = (await evidence("order", o.id)).filter(e => e.mime.startsWith("image/") && e.created_at >= (o.reprogrammed_at || o.created_at)).sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
-      const photo = stage => { const e = photos.find(e => e.stage === stage && (stage !== "depois" || e.created_at >= [o.started_at, o.reopened_at, o.reprogrammed_at, o.created_at].filter(Boolean).sort().at(-1))); return e ? `/api/anexos/${e.id}` : null; };
+      const photos = (await evidence("order", o.id)).filter(e => e.mime.startsWith("image/") && evidenceTime(e) >= (o.reprogrammed_at || o.created_at)).sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
+      const photo = stage => { const e = photos.find(e => e.stage === stage && (stage !== "depois" || evidenceTime(e) >= [o.started_at, o.reopened_at, o.reprogrammed_at, o.created_at].filter(Boolean).sort().at(-1))); return e ? `/api/anexos/${e.id}` : null; };
       const team = o.team_id ? unpack(await db.get("SELECT * FROM catalogs WHERE id=?", [o.team_id])) : null;
       return { code: o.code, started_at: o.started_at || null, attendance_at: o.finished_at || o.scheduled_at || null, completed_at: o.completed_at || null, expected_completion_at: o.due_at || null, team: team?.name || null, before: photo("antes"), after: photo("depois") };
     })) };
@@ -718,21 +759,46 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       };
     }),
   );
+  // Field actions that accept request_id (idempotent replay) and captured_at (offline work time).
+  const fieldSyncActions = ["assumir", "iniciar", "concluir", "devolver"];
   const transition = (action, from, to, permission) =>
     app.post(
       `/api/ordens-servico/:id/${action}`,
       allow(permission),
       route(async (req) => {
+        const sync = fieldSyncActions.includes(action);
+        const requestId = sync ? optionalRequestId(req.body.request_id) : undefined;
+        if (requestId) {
+          const previous = await clientRequest(req.user.id, requestId);
+          if (previous) {
+            if (
+              previous.entity_type !== "order_transition" ||
+              previous.entity_id !== req.params.id
+            )
+              requestIdReused();
+            // Already applied: never reapply nor revalidate version/status.
+            const current = await entity("orders", req.params.id);
+            return canAccessOrder(req.user, current)
+              ? { ...current, replayed: true }
+              : { id: current.id, replayed: true };
+          }
+        }
+        const capturedAt = sync ? parseCapturedAt(req.body.captured_at) : null;
         const old = await accessOrder(req, req.params.id);
         assertExpectedVersion(old, req.body.version);
         if (!from.includes(old.status) || !canTransition(old.status, to, "order"))
-          fail(409, "Ação incompatível com o status atual.");
+          failCode(409, "Ação incompatível com o status atual.", "INVALID_STATUS");
         const data = { ...old };
         const stamp = now();
+        const workedAt = capturedAt ?? stamp;
+        if (action === "assumir") {
+          data.assumed_by = req.user.id;
+          data.assumed_by_name = req.user.name;
+        }
         if (action === "iniciar") {
           const point = z.object(coordinate).parse(req.body);
           data.arrival_location = point;
-          data.started_at = stamp;
+          data.started_at = workedAt;
           for (const { occurrence_id: id } of await related(old.id)) {
             const oc = await entity("occurrences", id),
               cat = await catalog(oc.category_id, "categorias");
@@ -742,16 +808,16 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
                 (e) =>
                   e.stage === "antes" &&
                   e.mime.startsWith("image/") &&
-                  e.created_at >= (old.reprogrammed_at || old.created_at),
+                  evidenceTime(e) >= (old.reprogrammed_at || old.created_at),
               )
             )
-              fail(400, "Anexe uma foto antes de iniciar a execução.");
+              failCode(400, "Anexe uma foto antes de iniciar a execução.", "BEFORE_PHOTO_REQUIRED");
           }
         }
         if (action === "concluir") {
           const { notes } = z.object({ notes: text }).parse(req.body);
           data.completion_notes = notes;
-          data.finished_at = stamp;
+          data.finished_at = workedAt;
           const ev = await evidence("order", old.id),
             materials = await db.all(
               "SELECT * FROM consumption WHERE order_id=?",
@@ -766,7 +832,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
                 (e) =>
                   e.stage === "depois" &&
                   e.mime.startsWith("image/") &&
-                  e.created_at >=
+                  evidenceTime(e) >=
                     [
                       old.started_at,
                       old.reopened_at,
@@ -778,9 +844,9 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
                       .at(-1),
               )
             )
-              fail(400, "Anexe uma foto depois do serviço.");
+              failCode(400, "Anexe uma foto depois do serviço.", "AFTER_PHOTO_REQUIRED");
             if (cat.require_material && !materials.length)
-              fail(400, "Registre o material utilizado antes de concluir.");
+              failCode(400, "Registre o material utilizado antes de concluir.", "MATERIAL_REQUIRED");
           }
         }
         if (action === "validar") {
@@ -797,7 +863,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           data.return_reason = z
             .object({ reason: text })
             .parse(req.body).reason;
-          data.returned_at = stamp;
+          data.returned_at = workedAt;
           data.returned_by = req.user.name;
         }
         if (["reabrir", "cancelar"].includes(action)) {
@@ -819,6 +885,8 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         await propagate(req, old, to);
         if (action === "reabrir")
           await queueOrderNotification(db, await entity("orders", old.id));
+        if (requestId)
+          await saveClientRequest(req.user.id, requestId, "order_transition", old.id);
         return entity("orders", old.id);
       }, true),
     );
@@ -869,6 +937,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         arrival_location: null,
         reason: null,
         reopened_at: null,
+        ...("assumed_by" in old ? { assumed_by: null, assumed_by_name: null } : {}),
       };
       await updateVersioned(db, "orders", old,
         "team_id=?,status='PROGRAMADA',updated_at=?,data=?",
@@ -911,6 +980,18 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
     "/api/ordens-servico/:id/material",
     allow("execute"),
     route(async (req) => {
+      const requestId = optionalRequestId(req.body?.request_id);
+      if (requestId) {
+        const previous = await clientRequest(req.user.id, requestId);
+        if (previous) {
+          const consumption =
+            previous.entity_type === "consumption" &&
+            (await db.get("SELECT order_id FROM consumption WHERE id=?", [previous.entity_id]));
+          if (!consumption || consumption.order_id !== req.params.id) requestIdReused();
+          return { ok: true, replayed: true };
+        }
+      }
+      const capturedAt = parseCapturedAt(req.body?.captured_at);
       const o = await accessOrder(req, req.params.id);
       if (o.status !== "EM_EXECUCAO")
         fail(409, "Inicie a execução antes de registrar materiais.");
@@ -924,11 +1005,14 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       const balance = await inventoryBalance(db, data.material_id);
       if (balance.controlled && data.quantity > balance.quantity) fail(409, "Saldo insuficiente no almoxarifado para registrar este consumo.");
       const unitCost = balance.averageCost || mat.unit_cost;
+      const consumptionId = randomUUID();
       await db.run("INSERT INTO consumption(id,order_id,material_id,quantity,unit_cost,created_at) VALUES(?,?,?,?,?,?)", [
-        randomUUID(), o.id, data.material_id, data.quantity, unitCost, now(),
+        consumptionId, o.id, data.material_id, data.quantity, unitCost, now(),
       ]);
       if (balance.controlled) await db.run("INSERT INTO inventory_movements(id,material_id,order_id,invoice_id,type,quantity,unit_cost,stage,notes,user_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", [randomUUID(), data.material_id, o.id, null, "saida", data.quantity, unitCost, "execucao", `Consumo na ${o.code}`, req.user.id, now()]);
-      await audit(req, "order", o.id, "Material registrado", null, data);
+      await audit(req, "order", o.id, "Material registrado", null, capturedAt ? { ...data, captured_at: capturedAt } : data);
+      if (requestId)
+        await saveClientRequest(req.user.id, requestId, "consumption", consumptionId);
     }, true),
   );
   app.post(
@@ -979,10 +1063,17 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
             type === "order"
               ? await accessOrder(req, req.params.id)
               : await entity(table, req.params.id);
-          if (
+          // A field user who registered a duplicate link may add the "registro" photo of that link.
+          const linkedOnly =
             type === "occurrence" &&
             req.user.role === "Equipe de Campo" &&
-            o.creator_id !== req.user.id
+            o.creator_id !== req.user.id;
+          if (
+            linkedOnly &&
+            !(await db.get(
+              "SELECT 1 AS found FROM client_requests WHERE user_id=? AND entity_type='occurrence_link' AND entity_id=?",
+              [req.user.id, o.id],
+            ))
           )
             fail(
               403,
@@ -1005,7 +1096,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
                 attachment.entity_id !== o.id ||
                 attachment.entity_type !== type
               )
-                fail(409, "Identificador de envio já utilizado.");
+                requestIdReused();
 
               return { id: attachment.id };
             }
@@ -1019,7 +1110,8 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
               "RECUSADA",
             ].includes(o.status)
           )
-            fail(409, "Registro encerrado para anexos.");
+            failCode(409, "Registro encerrado para anexos.", "RECORD_CLOSED");
+          const capturedAt = parseCapturedAt(req.body.captured_at);
           if (!req.file)
             fail(400, "Envie JPG, PNG, WebP, PDF ou MP4 de até 15 MB.");
           const b = req.file.buffer,
@@ -1047,6 +1139,11 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           const stage = z
             .enum(["registro", "antes", "durante", "depois", "documento"])
             .parse(req.body.stage);
+          if (linkedOnly && stage !== "registro")
+            fail(
+              403,
+              "Você só pode anexar fotos às ocorrências que registrou.",
+            );
           if (
             type === "order" &&
             ["durante", "depois"].includes(stage) &&
@@ -1063,7 +1160,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           const key = `uploads/${filename}`;
           await storage.save(key, b);
           req.rollbackFiles.push(key);
-          await db.run("INSERT INTO evidence VALUES(?,?,?,?,?,?,?,?,?,?,?)", [
+          await db.run("INSERT INTO evidence(id,entity_type,entity_id,stage,filename,original_name,mime,user_id,created_at,lat,lng,captured_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", [
             id,
             type,
             o.id,
@@ -1075,19 +1172,16 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
             now(),
             point.lat,
             point.lng,
+            capturedAt,
           ]);
           await audit(req, type, o.id, `Evidência registrada: ${stage}`, null, {
             evidence_id: id,
             lat: point.lat,
             lng: point.lng,
+            ...(capturedAt ? { captured_at: capturedAt } : {}),
           });
           if (req.body.request_id)
-            await db.run("INSERT INTO client_requests VALUES(?,?,?,?)", [
-              req.user.id,
-              req.body.request_id,
-              "evidence",
-              id,
-            ]);
+            await saveClientRequest(req.user.id, req.body.request_id, "evidence", id);
           return { id };
         } catch (e) {
 

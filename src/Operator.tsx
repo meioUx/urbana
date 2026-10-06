@@ -1303,7 +1303,7 @@ function Evidence({ stage, order, boot, point, api, onChange }: any) {
         (e: any) =>
           e.stage === stage &&
           e.mime.startsWith("image/") &&
-          e.created_at >=
+          (e.captured_at || e.created_at) >=
             (stage === "antes"
               ? order.reprogrammed_at || order.created_at
               : [

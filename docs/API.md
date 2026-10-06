@@ -1,6 +1,6 @@
 # API REST
 
-Base `/api`. Corpos JSON, exceto anexos multipart. Sessão pelo cookie `urban_session` retornado no login. Erros: `{ "error": "mensagem", "details": ... }`. Códigos usuais: 400 validação, 401 sessão, 403 permissão, 404 registro ausente, 409 conflito, 429 limite de login, 500 falha interna.
+Base `/api`. Corpos JSON, exceto anexos multipart. Sessão pelo cookie `urban_session` retornado no login. Erros: `{ "error": "mensagem", "code": "CODIGO", "details": ... }` (`code` e `details` podem ser omitidos). Códigos usuais: 400 validação, 401 sessão, 403 permissão, 404 registro ausente, 409 conflito, 429 limite de login, 500 falha interna.
 
 Verificado contra `server/` em 2026-10-02. Modelo, estados, permissões e regras de negócio estão no [contexto mestre](URBANA-CONTEXTO-MESTRE.md); esta referência documenta os contratos HTTP vigentes, sem tratar roadmap como endpoint disponível.
 
@@ -15,7 +15,8 @@ Todas as rotas autenticadas exigem módulos compatíveis e liberados, além das 
 - Login retorna `{id,name,email,role,team_id}` e `Set-Cookie`; `/auth/me` retorna o usuário com `modules`. Bootstrap retorna `user`, `catalogs`, `operators` (preenchido somente para quem programa), `roles`, `priorities`, `settings` e `kanban`.
 - Corpo JSON tem limite de 1 MB. Campos desconhecidos de objetos validados por Zod são descartados. Mutações com `Origin` de host diferente retornam 403; cliente de navegador deve enviar cookie da sessão.
 - Ocorrências, OS e auditoria aceitam `limit` (1–200) e `cursor` e retornam `{items,has_more,next_cursor}`. Sem esses parâmetros, mantém-se array legado (auditoria limitada a 300). Filtros são aplicados por SQL antes da paginação; cursor usa created_at/id e deve ser reutilizado com os mesmos filtros. Listas de ocorrências/triagem/OS na UI usam páginas de 50. Painel, mapa e planejamento ainda possuem consultas amplas separadas.
-- `version` é retornada por ocorrência, OS e plano. Classificação/recusa, transições/reprogramação exigem `version` lida no JSON; triagem integrada exige `triage.version`. Ausência retorna 428 VERSION_REQUIRED, formato inválido 400 INVALID_VERSION, versão antiga 409 VERSION_CONFLICT com `details.current_version`. Não há `If-Match` geral. `revision` do Kanban e `kanban_expected_status` são contratos específicos. `request_id` protege somente os envios documentados, não todas as mutações.
+- `version` é retornada por ocorrência, OS e plano. Classificação/recusa, transições/reprogramação exigem `version` lida no JSON; triagem integrada exige `triage.version`. Ausência retorna 428 VERSION_REQUIRED, formato inválido 400 INVALID_VERSION, versão antiga 409 VERSION_CONFLICT com `details.current_version`. Não há `If-Match` geral. `revision` do Kanban e `kanban_expected_status` são contratos específicos. `request_id` protege somente os envios documentados, não todas as mutações. Chaves são por usuário; reutilizar a mesma chave em outra entidade/tipo retorna 409 `REQUEST_ID_REUSED` ("Identificador de envio já utilizado.").
+- Códigos estruturados (mesmo status e mensagem de antes, apenas com `code`): `BEFORE_PHOTO_REQUIRED` (400), `AFTER_PHOTO_REQUIRED` (400), `MATERIAL_REQUIRED` (400), `INVALID_STATUS` (409, "Ação incompatível com o status atual."), `RECORD_CLOSED` (409, anexos), `INVALID_DUPLICATE_LINK` (400), `ORDER_NOT_ACCESSIBLE` (403, OS de outra equipe/operador), `REQUEST_ID_REUSED` (409), `INVALID_CAPTURED_AT` (400), além de `VERSION_*` e `UPLOAD_BUSY`. Clientes devem decidir por `code`, nunca pela mensagem.
 - 400: schema, vínculo, coordenadas, arquivo ou requisito inválido; 401: sessão ausente/expirada; 403: ação/equipe/origem; 404: entidade/rota; 409: duplicidade, etapa, WIP, revisão, saldo ou confirmação repetida; 429: tentativas de login ou UPLOAD_BUSY; 500: erro interno. Push sem configuração retorna 503. `details` pode ser omitido; erros Zod usam campos de `flatten()`.
 
 | Método | Rota | Função |
@@ -108,11 +109,18 @@ Campos opcionais:
 
 Transições retornam OS atualizada. `assumir` e `validar` não exigem campos adicionais; `iniciar` recebe números `lat/lng`; `concluir` recebe `notes` não vazio; `reabrir`, `cancelar`, `devolver` recebem `reason` não vazio. Requisitos por estado/categoria estão no contexto mestre. Material exige `quantity > 0` (até 1.000.000); material/equipamento retornam `{ok:true}` e só são aceitos em execução.
 
+Campos opcionais de sincronização de campo (sem eles o comportamento é o anterior):
+
+- `assumir`, `iniciar`, `concluir`, `devolver` aceitam `request_id` (UUID). O primeiro envio aplica a transição e registra a chave na mesma transação. Repetição pelo mesmo usuário para a mesma OS não reaplica nem valida `version`/estado: retorna 200 com a OS atual e `replayed: true` (se a OS deixou de ser acessível ao usuário, apenas `{id, replayed: true}`). Chave usada em outra OS/tipo: 409 `REQUEST_ID_REUSED`. Uma transição rejeitada não consome a chave. Outras transições (`validar`, `reabrir`, `cancelar`) ignoram `request_id`.
+- As mesmas quatro aceitam `captured_at` (ISO 8601 com fuso, hora real do trabalho offline): `iniciar` grava `started_at`, `concluir` grava `finished_at` e `devolver` grava `returned_at` com `captured_at ?? agora`; em `assumir` fica apenas na auditoria. `updated_at` e auditoria seguem a hora do servidor. Inválido, mais de 5 min no futuro ou mais de 30 dias no passado: 400 `INVALID_CAPTURED_AT`. O valor é normalizado para UTC (`toISOString`).
+- `assumir` grava `assumed_by` (ID) e `assumed_by_name` na OS, apenas informativos: não alteram `assigned_user_id` nem o acesso. `programacao` limpa esses campos junto de `started_at`, `finished_at` etc.
+- `POST /ordens-servico/:id/material` aceita `request_id` (UUID, tipo `consumption`) e `captured_at` (só auditoria). Repetição retorna `{ok:true, replayed:true}` sem novo lançamento nem validação de estado; chave usada em outra OS/tipo: 409 `REQUEST_ID_REUSED`.
+
 ## Evidências
 
 Multipart com `file`, `stage`, `lat` e `lng`. Etapas: `registro`, `antes`, `durante`, `depois`, `documento`. JPG/PNG/WebP/PDF/MP4 até 15 MB. Fotos exigidas no fluxo devem ser arquivos de imagem, não PDFs. Coordenadas da evidência podem ser obtidas do dispositivo ou confirmadas manualmente.
 
-Um arquivo por envio; `request_id` UUID opcional. Resposta é a evidência persistida (ID, vínculo, etapa, nome/mime, autor/data e coordenadas quando enviadas); repetir o identificador suportado retorna a mesma evidência. Arquivos são consultados por `/anexos/:id`. Nunca reutilizar um identificador em operações distintas.
+Um arquivo por envio; `request_id` UUID opcional. Resposta é `{ id }` da evidência persistida; repetir o identificador suportado retorna `{ id }` da mesma evidência (chave usada em outra entidade: 409 `REQUEST_ID_REUSED`). O campo multipart opcional `captured_at` (mesmas regras das transições, 400 `INVALID_CAPTURED_AT`) grava a hora de captura; `created_at` continua sendo a hora de recebimento. Detalhes de OS/ocorrência listam `evidence` com `captured_at` (null quando não informado). As exigências de foto antes/depois comparam `captured_at ?? created_at` da evidência com `reprogrammed_at`, `started_at`, `reopened_at` e `created_at` da OS; uma foto capturada antes de uma reprogramação não vale para iniciar, mesmo se recebida depois. Registro encerrado: 409 `RECORD_CLOSED`. Arquivos são consultados por `/anexos/:id`. Nunca reutilizar um identificador em operações distintas.
 
 ## Catálogo de categoria
 
@@ -128,11 +136,12 @@ Um arquivo por envio; `request_id` UUID opcional. Resposta é a evidência persi
 ## Operação de campo
 
 - `GET /api/campo`: ordens autorizadas com endereços, registros criados pelo usuário, horário do servidor e disponibilidade/chave pública de push.
-- `POST /api/ocorrencias`: também permitido a Equipe de Campo; aceita `requested_by`, `phone` e UUID `request_id` opcional para reenvio idempotente.
-- `POST /api/ocorrencias/:id/anexos` e `/api/ordens-servico/:id/anexos`: multipart aceita UUID `request_id`; reenvios retornam a mesma evidência. Operadores só anexam a ocorrências próprias ou a ordens que podem executar.
+- `POST /api/ocorrencias`: também permitido a Equipe de Campo; aceita `requested_by`, `phone` e UUID `request_id` opcional para reenvio idempotente. Com `duplicate_action: "link"` e `request_id`, o vínculo é registrado (tipo `occurrence_link`); repetir a chave retorna a ocorrência alvo com `linked:true`, sem nova auditoria, e nunca cria ocorrência nova (mesmo com `duplicate_action: "new"`). Vínculo inválido: 400 `INVALID_DUPLICATE_LINK`.
+- `POST /api/ocorrencias/:id/anexos` e `/api/ordens-servico/:id/anexos`: multipart aceita UUID `request_id`; reenvios retornam a mesma evidência. Operadores só anexam a ocorrências próprias ou a ordens que podem executar; quem registrou um vínculo de duplicidade com `request_id` também pode anexar foto da etapa `registro` à ocorrência vinculada. Multipart aceita `captured_at`.
 - `POST /api/ordens-servico`: aceita `assigned_user_id` opcional, restrito aos operadores da equipe. Registra emissor e enfileira aviso para os destinatários.
 - `POST /api/ordens-servico/:id/programacao`: Administrador/Gestor; `{version, team_id, assigned_user_id?, responsible, scheduled_at, notes}`. Permitido para `PROGRAMADA` ou `DEVOLVIDA`.
 - `POST /api/ordens-servico/:id/devolver`: executor autorizado; `{reason}` obrigatório. Retorna à gestão no estado `DEVOLVIDA`.
+- `assumir`/`iniciar`/`concluir`/`devolver` e `material` aceitam `request_id` e `captured_at` para fila offline (ver Programar OS → campos de sincronização). OS de outra equipe/operador: 403 `ORDER_NOT_ACCESSIBLE`.
 - `POST /api/campo/notificacoes`: cadastra assinatura Web Push `{endpoint,keys:{p256dh,auth}}`; requer configuração VAPID e endpoint de serviço de push reconhecido.
 - `DELETE /api/campo/notificacoes`: `{endpoint}`; remove a assinatura do usuário naquele aparelho.
 - `GET /healthz`: verificação de disponibilidade do processo, sem autenticação.

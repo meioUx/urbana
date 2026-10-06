@@ -20,7 +20,7 @@ export default function WorkflowGuide({ value, catalogs, onEvidence }: any) {
   const order = value.type === "order";
   const categories = order ? (value.occurrences || []).map((o: any) => catalogs.find((c: any) => c.id === o.category_id)).filter(Boolean) : [];
   const afterSince = [value.started_at, value.reopened_at, value.reprogrammed_at, value.created_at].filter(Boolean).sort().at(-1);
-  const photo = (name: string) => (value.evidence || []).some((e: any) => e.stage === name && e.mime?.startsWith("image/") && e.created_at >= (name === "antes" ? value.reprogrammed_at || value.created_at : afterSince));
+  const photo = (name: string) => (value.evidence || []).some((e: any) => e.stage === name && e.mime?.startsWith("image/") && (e.captured_at || e.created_at) >= (name === "antes" ? value.reprogrammed_at || value.created_at : afterSince));
   const checks = order && ["PROGRAMADA", "EM_DESLOCAMENTO", "EM_EXECUCAO"].includes(value.status) ? [
     ...(value.status !== "EM_EXECUCAO" && categories.some((c: any) => c.require_before) ? [{ label: "Foto antes de iniciar", done: photo("antes"), evidence: true }] : []),
     ...(value.status === "EM_EXECUCAO" && categories.some((c: any) => c.require_after) ? [{ label: "Foto após o serviço", done: photo("depois"), evidence: true }] : []),

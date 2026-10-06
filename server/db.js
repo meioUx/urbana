@@ -146,5 +146,16 @@ export async function openDatabase() {
     } catch(error) {await db.exec('ROLLBACK');throw error;}
   }
   await db.run('INSERT INTO schema_migrations(version,applied_at) VALUES(9,?) ON CONFLICT(version) DO NOTHING',[new Date().toISOString()]);
+  // Version 10: real capture time of field evidence (offline sync). created_at keeps the server receipt time.
+  if (!(await db.get('SELECT version FROM schema_migrations WHERE version=10'))) {
+    await db.exec('BEGIN');
+    try {
+      // Idempotent on both dialects, so a re-run after a partial restore does not fail.
+      if (db.dialect === 'postgres') await db.exec('ALTER TABLE evidence ADD COLUMN IF NOT EXISTS captured_at TEXT');
+      else if (!(await db.get("SELECT name FROM pragma_table_info('evidence') WHERE name='captured_at'"))) await db.exec('ALTER TABLE evidence ADD COLUMN captured_at TEXT');
+      await db.run('INSERT INTO schema_migrations(version,applied_at) VALUES(10,?)',[new Date().toISOString()]);
+      await db.exec('COMMIT');
+    } catch(error) {await db.exec('ROLLBACK');throw error;}
+  }
   return db;
 }

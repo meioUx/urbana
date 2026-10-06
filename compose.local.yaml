@@ -1,0 +1,51 @@
+# Ambiente LOCAL de desenvolvimento/homologação: Urbana + PostgreSQL/PostGIS.
+# Não use em produção (dados demonstrativos, cookie sem HTTPS, senha fixa do banco).
+#
+#   docker compose -f compose.local.yaml up -d --build
+#   API/web: http://<ip-da-maquina>:3000  (o app de campo usa este endereço)
+#   Postgres: localhost:5442  (banco "urbana"; banco de testes "urbana_test")
+#
+# Testes de PostgreSQL contra este banco:
+#   URBANA_POSTGRES_TEST_URL=postgres://urbana:urbana@localhost:5442/urbana_test node --test tests/postgres.test.js
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    # A imagem oficial do PostGIS só é publicada para amd64 (em Apple Silicon roda emulada).
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: urbana
+      POSTGRES_PASSWORD: urbana
+      POSTGRES_DB: urbana
+    ports:
+      - "${URBANA_PG_PORT:-5442}:5432"
+    volumes:
+      - urbana_pg:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urbana -d urbana"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgres://urbana:urbana@db:5432/urbana
+      DEMO_DATA: "true"
+      SECURE_COOKIE: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - urbana_files:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  urbana_pg:
+  urbana_files:

@@ -77,7 +77,7 @@ Push exige as três variáveis VAPID, HTTPS, permissão por aparelho e navegador
 
 ## Atualizar e preservar dados
 
-`docker compose up -d --build` substitui a aplicação e mantém os volumes. Não use `docker compose down -v` em uma instalação com registros que devem ser preservados. Faça backup consistente antes da atualização, registre revisão Git/imagem/configuração e confira migrations aplicáveis. Versões 1–9 são executadas/verificadas automaticamente na inicialização.
+`docker compose up -d --build` substitui a aplicação e mantém os volumes. Não use `docker compose down -v` em uma instalação com registros que devem ser preservados. Faça backup consistente antes da atualização, registre revisão Git/imagem/configuração e confira migrations aplicáveis. Versões 1–10 são executadas/verificadas automaticamente na inicialização.
 
 | Versão | Conteúdo vigente |
 | --- | --- |
@@ -90,8 +90,9 @@ Push exige as três variáveis VAPID, HTTPS, permissão por aparelho e navegador
 | 7 | Índices de paginação e FKs dos movimentos de estoque |
 | 8 | Inicialização das liberações individuais de módulos |
 | 9 | Progresso versionado e eventos internos de onboarding |
+| 10 | Coluna `evidence.captured_at` (hora de captura em campo; idempotente) |
 
-Versões 2–8 são transacionais e registradas após sucesso. A versão 9 registra a criação idempotente das tabelas de onboarding no esquema base. Implementação em `server/db.js`; não há diretório `migrations/`, CLI separado ou downgrade automatizado. Não editar migrations antigas para futuras mudanças; adicionar versão aditiva e verificar em instalação existente. Scripts em `scripts/` que reescrevem permissões/perfis não fazem parte deste procedimento nem de migrations ativas.
+Versões 2–8 e 10 são transacionais e registradas após sucesso. A versão 9 registra a criação idempotente das tabelas de onboarding no esquema base. Implementação em `server/db.js`; não há diretório `migrations/`, CLI separado ou downgrade automatizado. Não editar migrations antigas para futuras mudanças; adicionar versão aditiva e verificar em instalação existente. Scripts em `scripts/` que reescrevem permissões/perfis não fazem parte deste procedimento nem de migrations ativas.
 
 Após atualizar: verificar logs/healthcheck, login, catálogo, programação, evidência, conclusão/validação, nota/estoque e push configurado; comparar dados preservados. Se falhar, interromper tráfego e investigar; voltar somente para imagem compatível com o esquema aplicado ou restaurar o conjunto banco+arquivos/configuração da cópia anterior. Não pressupor rollback de schema ao trocar imagem.
 
@@ -172,3 +173,16 @@ Para executar homologação posteriormente, configure URBANA_POSTGRES_TEST_URL p
 O build gera chunks dinâmicos. Publique todo dist/ da mesma revisão; mantenha assets antigos acessíveis durante atualização de sessões abertas ou peça recarregamento antes de operar. Os nomes têm hash; não misture index/assets de revisões diferentes. Code splitting não adiciona cache offline de módulos, OS ou sincronização.
 
 Há limite de quatro uploads concorrentes por aplicação (maxConcurrentUploads na fábrica), compartilhado entre evidências e PDFs. Excesso retorna 429 UPLOAD_BUSY e pode ser reenviado; limite e política do proxy devem ser dimensionados em homologação.
+
+
+## Ambiente local com PostgreSQL/PostGIS (desenvolvimento e homologação)
+
+`compose.local.yaml` sobe o Urbana com PostgreSQL/PostGIS e dados demonstrativos, sem HTTPS — **não usar em produção**.
+
+```bash
+docker compose -f compose.local.yaml up -d --build      # API/web na porta 3000; Postgres em localhost:5442
+URBANA_POSTGRES_TEST_URL=postgres://urbana:urbana@localhost:5442/urbana_test npm test   # inclui tests/postgres.test.js
+docker compose -f compose.local.yaml down -v            # apaga banco e anexos locais
+```
+
+O banco `urbana_test` (com PostGIS) é criado por `docker/postgres-init/` na primeira subida do volume. A imagem oficial `postgis/postgis` só existe para amd64; em Apple Silicon roda emulada. Em 2026-10-03 a suíte completa (72 testes, incluindo PostgreSQL/PostGIS) passou contra esse ambiente.
