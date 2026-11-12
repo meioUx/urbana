@@ -6,6 +6,7 @@ import {
   Search,
 } from "lucide-react";
 import "./sector-control.css";
+import { TableScroll } from "./shared/ui";
 
 const fmtDate = (value: string | null) =>
   value ? new Date(value).toLocaleDateString("pt-BR") : "—";
@@ -171,7 +172,10 @@ export default function SectorControl({ api, boot, onOpen }: any) {
         </article>
       </div>
       <div className="sector-layout">
-        <div className="table-scroll sector-table">
+        <TableScroll
+          label="Tabela do controle do setor"
+          className="sector-table"
+        >
           <table>
             <thead>
               <tr>
@@ -226,7 +230,7 @@ export default function SectorControl({ api, boot, onOpen }: any) {
               Nenhuma ordem encontrada para o período e os filtros.
             </p>
           )}
-        </div>
+        </TableScroll>
         <aside className="sector-summaries">
           <section>
             <h2>Somatória O.S.</h2>

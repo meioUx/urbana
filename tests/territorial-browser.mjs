@@ -1,3 +1,4 @@
+import { launchBrowser } from "./support/browser.mjs";
 import { skipInitialOnboarding } from "./onboarding-fixture.mjs";
 import assert from "node:assert/strict";
 import express from "express";
@@ -22,7 +23,7 @@ app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
 const server = app.listen(0, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const base = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ headless: true, channel: "msedge" });
+const browser = await launchBrowser(chromium);
 try {
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
@@ -200,12 +201,10 @@ try {
   await marker().focus();
   await page.keyboard.press("Enter");
   await page.locator(".operational-open").first().waitFor();
-  const controls = await page
-    .locator(".heat-controls")
-    .evaluate((el) => ({
-      button: el.querySelector("button").getBoundingClientRect().x,
-      count: el.querySelector("span").getBoundingClientRect().x,
-    }));
+  const controls = await page.locator(".heat-controls").evaluate((el) => ({
+    button: el.querySelector("button").getBoundingClientRect().x,
+    count: el.querySelector("span").getBoundingClientRect().x,
+  }));
   assert.ok(controls.count > controls.button);
   await page.locator(".operational-open").first().click();
   await page.locator(".territorial-view").waitFor({ state: "hidden" });

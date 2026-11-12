@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useModalDialog } from "./shared/ui";
 import { ArrowRight, LocateFixed, X } from "lucide-react";
 import { kanbanColumns } from "./kanban-model.mjs";
 
@@ -31,9 +32,7 @@ export default function KanbanMoveDialog({
     notes: "",
     reason: "",
   });
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
+  useModalDialog(dialog);
   const set = (key: string, value: any) =>
     setData((old: any) => ({ ...old, [key]: value }));
   const teams = boot.catalogs.filter(

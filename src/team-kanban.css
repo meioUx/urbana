@@ -19,7 +19,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  color: #75847c;
+  color: var(--ink-muted);
 }
 .kanban-search {
   flex: 1 1 190px;
@@ -98,7 +98,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 10px 24px;
-  color: #65766c;
+  color: var(--ink-muted);
   padding: 4px 2px;
   font-size: 12px;
 }
@@ -117,7 +117,7 @@
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: #78887e;
+  color: var(--ink-muted);
   font-size: 11px;
 }
 .kanban-team-load {
@@ -193,7 +193,7 @@
 }
 .kanban-column header small {
   font-size: 10px;
-  color: #7d8c83;
+  color: var(--ink-muted);
 }
 .kanban-stage-dot {
   width: 7px;
@@ -232,16 +232,35 @@
 }
 .kanban-column-hint {
   font-size: 11px;
-  color: #7b8b81;
+  color: var(--ink-muted);
   margin: 7px 0 16px;
   line-height: 1.5;
   min-height: 16px;
+}
+.kanban-window {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #4f5f55;
+}
+.kanban-window label {
+  display: grid;
+  gap: 3px;
+}
+.kanban-window select {
+  font-size: 12px;
+  padding: 4px 6px;
+}
+.kanban-window .text-button {
+  justify-self: start;
+  font-size: 11px;
 }
 .kanban-column-hint em {
   display: block;
   font-style: normal;
   font-size: 10px;
-  color: #59886b;
+  color: var(--ink-green);
   margin-top: 3px;
 }
 .kanban-column.at-capacity header > span {
@@ -309,7 +328,7 @@
   align-items: center;
   gap: 5px;
   font-size: 10px;
-  color: #677b6d;
+  color: var(--ink-muted);
 }
 .kanban-card-top > strong {
   flex: 1;
@@ -321,7 +340,7 @@
   border: 0;
   background: transparent;
   padding: 5px 3px;
-  color: #9baa9f;
+  color: var(--ink-faint);
   cursor: grab;
   touch-action: none;
   margin-left: -5px;
@@ -335,21 +354,22 @@
   border-radius: 4px;
   font-size: 10px;
   background: #f0f4f1;
-  color: #66776a;
+  color: var(--ink-muted);
 }
 .priority-Emergencial {
   background: #fdeaea;
-  color: #b94747;
+  color: var(--ink-red);
 }
 .priority-Alta {
   background: #fff0e4;
-  color: #ac6326;
+  color: var(--ink-orange);
 }
 .priority-Média {
   background: #fff7df;
-  color: #977c26;
+  color: var(--ink-orange);
 }
 .kanban-card-title {
+  min-height: 24px;
   font-family: inherit;
   font-size: 13px;
   font-weight: 650;
@@ -362,11 +382,11 @@
   cursor: pointer;
 }
 .kanban-card-title:hover {
-  color: #148258;
+  color: var(--ink-green);
   text-decoration: underline;
 }
 .kanban-neighborhood {
-  color: #859187;
+  color: var(--ink-muted);
 }
 .kanban-card-meta {
   display: flex;
@@ -374,7 +394,7 @@
   align-items: center;
   gap: 4px 8px;
   font-size: 10px;
-  color: #7a887e;
+  color: var(--ink-muted);
   line-height: 1.6;
 }
 .kanban-team {
@@ -390,7 +410,7 @@
   flex-shrink: 0;
 }
 .kanban-late {
-  color: #ae592b;
+  color: var(--ink-orange);
 }
 .kanban-card .kanban-blocked {
   color: #965d37;
@@ -412,7 +432,7 @@
   padding: 5px 0;
   border: 0;
   background: transparent;
-  color: #338564;
+  color: var(--ink-green);
   font-size: 10px;
   font-weight: 600;
   text-align: left;
@@ -425,7 +445,7 @@
   border-radius: 5px;
   background: #f7f9f7;
   font-size: 10px;
-  color: #677c6d;
+  color: var(--ink-muted);
 }
 .kanban-prioritize {
   display: flex;
@@ -433,7 +453,7 @@
   border: 0;
   border-radius: 5px;
   background: #f2f6f3;
-  color: #63816d;
+  color: var(--ink-muted);
   cursor: pointer;
 }
 .kanban-prioritize:disabled {
@@ -446,7 +466,7 @@
   border: 1px dashed #d2dfd5;
   border-radius: 8px;
   font-size: 11px;
-  color: #8b9a90;
+  color: var(--ink-faint);
 }
 .kanban-rules {
   display: grid;
@@ -463,7 +483,7 @@
   margin: 0 0 8px;
 }
 .kanban-rules p {
-  color: #728277;
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 1.6;
   margin: 0 0 12px;
@@ -521,7 +541,7 @@
   margin: 6px 0 0;
 }
 .kanban-dialog header small {
-  color: #85988a;
+  color: var(--ink-muted);
   font-size: 11px;
 }
 .kanban-dialog p {
@@ -532,7 +552,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #7b8e80;
+  color: var(--ink-muted);
   border-bottom: 1px solid #e6eee8;
   padding-bottom: 15px;
 }

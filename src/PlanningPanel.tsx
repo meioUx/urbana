@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   CalendarDays,
@@ -19,6 +19,10 @@ import {
 } from "./planning-model.mjs";
 import { summarizeTeam } from "./dispatch-model.mjs";
 import PlanningPlanDialog from "./PlanningPlanDialog";
+import {
+  useCursorPages,
+  useOpenOrders,
+} from "./modules/workspace/useServerData";
 import "./planning.css";
 
 const localDate = () => {
@@ -121,7 +125,7 @@ export function PlanningTeamCapacity({
 export default function PlanningPanel({
   planning,
   boot,
-  orders,
+  lastSync,
   canSchedule,
   api,
   onRefresh,
@@ -147,9 +151,27 @@ export default function PlanningPanel({
     [message, setMessage] = useState(""),
     [latest, setLatest] = useState(""),
     [refreshing, setRefreshing] = useState(false);
+  // Carga das equipes: só as OS abertas (concluídas e canceladas não contam).
+  const { orders, error: ordersError } = useOpenOrders(lastSync);
+  // Cada ocorrência dos grupos já traz order_ids do servidor; não é preciso a lista de OS.
   const candidates = useMemo(
-    () => buildWorkCandidates(planning.groups, boot.catalogs, orders),
-    [planning.groups, boot.catalogs, orders],
+    () => buildWorkCandidates(planning.groups, boot.catalogs),
+    [planning.groups, boot.catalogs],
+  );
+  // Planos encerrados: fora de /planejamento, buscados sob demanda (mais recentes primeiro) com a
+  // mesma busca e setor aplicados no servidor.
+  const [closedQuery, setClosedQuery] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setClosedQuery(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+  const wantsClosed = tab === "plans" && ["closed", "all"].includes(planFilter);
+  const closedParams = new URLSearchParams({ limit: "20" });
+  if (closedQuery) closedParams.set("q", closedQuery);
+  if (sector) closedParams.set("sector_id", sector);
+  const closedPlans = useCursorPages<any>(
+    wantsClosed ? `/planejamento/encerrados?${closedParams}` : null,
+    lastSync,
   );
   const filtered = filterWorkCandidates(candidates, {
     query,
@@ -167,7 +189,10 @@ export default function PlanningPanel({
   const activePlans = planning.plans.filter(activePlan);
   const name = (id: string) =>
     boot.catalogs.find((c: any) => c.id === id)?.name || "Sem equipe";
-  const planRows = planning.plans
+  const planRows = [
+    ...(planFilter === "closed" ? [] : planning.plans),
+    ...(wantsClosed ? closedPlans.items : []),
+  ]
     .filter(
       (p: any) =>
         (planFilter !== "active" || activePlan(p)) &&
@@ -183,7 +208,8 @@ export default function PlanningPanel({
     .sort(
       (a: any, b: any) =>
         Number(activePlan(b)) - Number(activePlan(a)) ||
-        a.scheduled_at.localeCompare(b.scheduled_at),
+        // Encerrados mantêm a ordem do servidor (mais recentes primeiro) para paginar sem saltos.
+        (activePlan(a) ? a.scheduled_at.localeCompare(b.scheduled_at) : 0),
     );
   const refresh = async () => {
     setRefreshing(true);
@@ -269,7 +295,11 @@ export default function PlanningPanel({
           </button>
         </p>
       )}
-      <div className="planning-overview" aria-label="Resumo do planejamento">
+      <div
+        className="planning-overview"
+        role="group"
+        aria-label="Resumo do planejamento"
+      >
         <span>
           <strong>{candidates.length}</strong> intervenções disponíveis
         </span>
@@ -522,7 +552,6 @@ export default function PlanningPanel({
                   <button
                     className="planning-candidate-main"
                     aria-pressed={focused?.key === c.key}
-                    aria-label={`Analisar ${c.street} · ${c.sector_name}`}
                     onClick={() => setFocusKey(c.key)}
                   >
                     <span>
@@ -695,6 +724,15 @@ export default function PlanningPanel({
               Ver todas as ordens
             </button>
           </div>
+          {wantsClosed && (
+            <p className="planning-note" role="status">
+              {planning.closed_plans} planos encerrados no total. Eles são
+              carregados em páginas, dos mais recentes para os mais antigos
+              {closedPlans.hasMore
+                ? "; use \u201cCarregar mais planos encerrados\u201d para ver os anteriores."
+                : "."}
+            </p>
+          )}
           <div className="planning-plan-grid">
             {planRows.map((p: any) => {
               const available = unscheduledPlanMembers(p),
@@ -806,25 +844,61 @@ export default function PlanningPanel({
               );
             })}
           </div>
-          {planRows.length === 0 && (
-            <div className="planning-empty">
-              <h3>Nenhum plano neste filtro</h3>
-              <p>
-                Escolha uma intervenção e defina o escopo para iniciar o
-                planejamento.
-              </p>
+          {wantsClosed && closedPlans.error && (
+            <div className="notice error" role="alert">
+              <span>
+                Não foi possível carregar os planos encerrados.{" "}
+                {closedPlans.error}
+              </span>
               <button
-                className="button secondary"
-                onClick={() => {
-                  setTab("choose");
-                  setQuery("");
-                }}
+                className="text-button"
+                disabled={closedPlans.loading}
+                onClick={() => void closedPlans.retry()}
               >
-                Escolher obras
+                Tentar novamente
               </button>
             </div>
           )}
+          {wantsClosed && closedPlans.loading && (
+            <p role="status">Carregando planos encerrados...</p>
+          )}
+          {wantsClosed && closedPlans.hasMore && (
+            <div className="form-actions">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={closedPlans.loading}
+                onClick={() => void closedPlans.loadMore()}
+              >
+                Carregar mais planos encerrados
+              </button>
+            </div>
+          )}
+          {planRows.length === 0 &&
+            !(wantsClosed && (closedPlans.loading || closedPlans.hasMore)) && (
+              <div className="planning-empty">
+                <h3>Nenhum plano neste filtro</h3>
+                <p>
+                  Escolha uma intervenção e defina o escopo para iniciar o
+                  planejamento.
+                </p>
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    setTab("choose");
+                    setQuery("");
+                  }}
+                >
+                  Escolher obras
+                </button>
+              </div>
+            )}
         </section>
+      )}
+      {ordersError && (
+        <p className="form-error" role="alert">
+          Não foi possível consultar a carga das equipes. {ordersError}
+        </p>
       )}
       {proposal && (
         <PlanningPlanDialog

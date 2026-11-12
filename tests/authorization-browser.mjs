@@ -1,3 +1,4 @@
+import { launchBrowser } from "./support/browser.mjs";
 import { skipInitialOnboarding } from "./onboarding-fixture.mjs";
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
@@ -24,12 +25,13 @@ app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
 const server = app.listen(0, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const base = "http://127.0.0.1:" + server.address().port;
-const browser = await chromium.launch({ headless: true, channel: "msedge" });
+const browser = await launchBrowser(chromium);
 async function session(name) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
   await context.request.post(base + "/api/auth/login", {
+    headers: { origin: base },
     data: { email: name + "@urbana.local", password: "Testing@2026" },
   });
   return { context, page: await context.newPage() };
@@ -121,6 +123,7 @@ try {
     .click();
   const restrictedContext = await browser.newContext();
   await restrictedContext.request.post(base + "/api/auth/login", {
+    headers: { origin: base },
     data: { email: "browser@test.local", password: "Testing@2026" },
   });
   const restricted = await restrictedContext.newPage();
@@ -153,6 +156,7 @@ try {
   assert.equal(
     (
       await adminContext.request.patch(base + "/api/users/gestor", {
+        headers: { origin: base },
         data: { ...managerData, modules: ["dashboard"] },
       })
     ).status(),

@@ -78,7 +78,7 @@
   line-height: 1.55;
 }
 .operator-lead {
-  color: #64786d;
+  color: var(--ink-muted);
   margin: 0 0 22px;
 }
 .operator-eyebrow {
@@ -137,7 +137,7 @@
   color: #526b5d;
 }
 .operator-card small {
-  color: #60766a;
+  color: var(--ink-muted);
   line-height: 1.6;
 }
 .operator-task h2 {
@@ -239,7 +239,7 @@
   min-height: 74px;
   background: none;
   border: 0;
-  color: #688174;
+  color: var(--ink-muted);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -296,7 +296,7 @@
 }
 .operator-sync {
   display: block;
-  color: #6c8074;
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 1.55;
   margin: 20px 0;
@@ -304,7 +304,7 @@
 .operator-empty {
   padding: 40px 20px;
   text-align: center;
-  color: #648071;
+  color: var(--ink-muted);
 }
 .operator-empty svg {
   width: 40px;
@@ -406,7 +406,7 @@
   font-size: 13px;
 }
 .operator-facts dt {
-  color: #64796c;
+  color: var(--ink-muted);
 }
 .operator-facts dd {
   margin: 0;
@@ -425,7 +425,7 @@
   padding: 10px 0;
   border: 0;
   background: none;
-  color: #96651d;
+  color: var(--ink-orange);
   font-weight: 600;
   font-size: 14px;
 }
@@ -463,4 +463,167 @@
   .operator-main {
     padding-top: 32px;
   }
+}
+/* Operação offline: situação de envio, dados salvos e pendências. */
+.operator-sync-status:empty {
+  display: none;
+}
+.operator-sync-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  border: 1px solid #c9e0d0;
+  background: #e6f3e9;
+  color: #25513b;
+}
+.operator-sync-status span {
+  flex: 1 1 200px;
+}
+.operator-sync-status svg {
+  flex-shrink: 0;
+}
+.operator-sync-status.offline {
+  background: #fff4df;
+  color: #77521c;
+  border-color: #e8d2a6;
+}
+.operator-sync-status.pending {
+  background: #eef4fb;
+  color: #1f4a73;
+  border-color: #c8d9ec;
+}
+.operator-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: #236047;
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: underline;
+}
+.operator-message.operator-session {
+  flex-wrap: wrap;
+}
+.operator-message.operator-session span {
+  flex: 1 1 220px;
+}
+.operator-message .operator-button,
+.operator-message .operator-link-button,
+.operator-outbox .operator-button {
+  margin: 4px 0;
+  font-size: 15px;
+}
+.operator-message .operator-button {
+  width: auto;
+  margin-left: 0;
+}
+.operator-message .operator-link-button {
+  margin-left: 0;
+  font-size: 14px;
+}
+.operator-message .operator-outbox-actions {
+  flex-basis: 100%;
+}
+.operator-cached {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 14px;
+  color: #77521c;
+  font-size: 13px;
+}
+.operator-cached svg {
+  flex-shrink: 0;
+}
+.operator-outbox ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.operator-outbox-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf1ee;
+  font-size: 14px;
+}
+.operator-outbox-item:last-child {
+  border-bottom: 0;
+}
+.operator-outbox-item small {
+  color: var(--ink-muted);
+}
+.operator-outbox-state {
+  font-size: 13px;
+  font-weight: 650;
+  color: #1f4a73;
+}
+.operator-outbox-item.waiting .operator-outbox-state {
+  color: var(--ink-muted);
+}
+.operator-outbox-item.rejected .operator-outbox-state {
+  color: #a2321f;
+}
+.operator-outbox-reason {
+  margin: 4px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fdecea;
+  color: #7a2416;
+  font-size: 14px;
+}
+.operator-outbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.operator-outbox-actions p {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.operator-outbox-actions .operator-button {
+  flex: 1 1 140px;
+}
+.operator-pending-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #eef4fb;
+  color: #1f4a73;
+  font-size: 12px;
+  font-weight: 650;
+}
+.operator-pending-badge.rejected {
+  background: #fdecea;
+  color: #7a2416;
+}
+.operator-pending-tag {
+  color: #1f4a73;
+  font-size: 13px;
+}
+.operator-gps.pending {
+  color: #1f4a73 !important;
+}
+.operator-local-photo {
+  min-width: 0;
+  margin: 0;
+}
+.operator-local-photo img {
+  opacity: 0.85;
+  outline: 2px dashed #8fb0d3;
+  outline-offset: -2px;
 }

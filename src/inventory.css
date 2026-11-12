@@ -67,6 +67,17 @@
   gap: 7px;
   font-size: 13px;
   font-weight: 650;
+  min-width: 0;
+}
+.inventory-adjustment select,
+.inventory-adjustment input {
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 480px) {
+  .inventory-adjustment .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .inventory-feed,
 .invoice-list {

@@ -7,6 +7,7 @@ import type { GeoJsonObject } from "geojson";
 import { mapTileProvider } from "./config";
 
 // Independent operational overlays: works, interventions, road segments, closures and mobility.
+// Point features are drawn as circle markers styled by options.style (no extra icon assets).
 export type MapOverlay = {
   id: string;
   data: GeoJsonObject;
@@ -27,6 +28,7 @@ export default function GeoMap({
   overlays,
   loadSummary,
   onOpenFullMap,
+  fit,
 }: {
   rows: Row[];
   onSelect?: (r: Row) => void;
@@ -37,6 +39,8 @@ export default function GeoMap({
   overlays?: MapOverlay[];
   loadSummary?: (id: string) => Promise<any>;
   onOpenFullMap?: () => void;
+  /** Enquadra o mapa nesta área [oeste, sul, leste, norte] quando ela muda. */
+  fit?: [number, number, number, number] | null;
 }) {
   const element = useRef<HTMLDivElement>(null),
     map = useRef<L.Map | null>(null),
@@ -126,12 +130,35 @@ export default function GeoMap({
   useEffect(() => {
     if (!map.current) return;
     const layers = (overlays || []).map(({ data, options }) =>
-      L.geoJSON(data, options).addTo(map.current!),
+      L.geoJSON(data, {
+        pointToLayer: (feature, latlng) => {
+          const style =
+            typeof options?.style === "function"
+              ? options.style(feature)
+              : options?.style;
+          return L.circleMarker(latlng, {
+            radius: 7,
+            weight: 2,
+            fillOpacity: 0.9,
+            ...style,
+          });
+        },
+        ...options,
+      }).addTo(map.current!),
     );
     return () => {
       layers.forEach((layer) => layer.remove());
     };
   }, [overlays]);
+  const fitKey = fit ? fit.join(",") : "";
+  useEffect(() => {
+    if (!map.current || !fit) return;
+    const [w, s, e, n] = fit;
+    map.current.fitBounds(L.latLngBounds([s, w], [n, e]), {
+      padding: [30, 30],
+      maxZoom: 17,
+    });
+  }, [fitKey]); // eslint-disable-line react-hooks/exhaustive-deps -- fitKey resume o enquadramento
   useEffect(() => {
     const g = group.current;
     if (!g) return;

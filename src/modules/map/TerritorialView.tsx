@@ -54,11 +54,9 @@ export default function TerritorialView({
           <Filter size={18} />
           Filtros
           {activeCount > 0 && (
-            <span
-              className="filter-count"
-              aria-label={`${activeCount} filtros ativos`}
-            >
-              {activeCount}
+            <span className="filter-count">
+              <span>{activeCount}</span>
+              <span className="visually-hidden"> filtros ativos</span>
             </span>
           )}
         </button>

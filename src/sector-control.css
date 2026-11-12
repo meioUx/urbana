@@ -11,7 +11,7 @@
 .sector-toolbar label > span {
   display: block;
   margin-bottom: 6px;
-  color: #65776b;
+  color: var(--ink-muted);
   font-size: 10px;
   font-weight: 650;
 }
@@ -47,10 +47,10 @@
   position: absolute;
   top: 16px;
   right: 16px;
-  color: #639379;
+  color: var(--ink-green);
 }
 .sector-kpis span {
-  color: #76867c;
+  color: var(--ink-muted);
   font-size: 11px;
 }
 .sector-kpis strong {
@@ -81,11 +81,11 @@
 .sector-table td small {
   display: block;
   margin-top: 4px;
-  color: #87928b;
+  color: var(--ink-muted);
 }
 .sector-empty {
   padding: 24px;
-  color: #75837a;
+  color: var(--ink-muted);
 }
 .sector-summaries {
   display: grid;

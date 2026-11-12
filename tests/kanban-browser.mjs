@@ -1,5 +1,6 @@
+import { launchBrowser } from "./support/browser.mjs";
 import { skipInitialOnboarding } from "./onboarding-fixture.mjs";
-import { chromium } from "./map-browser-fixture.mjs";
+import { chromium, expect } from "./map-browser-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,10 +20,12 @@ await seed(db);
 await skipInitialOnboarding(db);
 const app = createApp(db);
 app.use(express.static(resolve("dist")));
+// Mesmo fallback de SPA que server/index.js aplica em produção: recarregar /materiais devolve o index.
+app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
 const server = app.listen(0, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const url = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ headless: true, channel: "msedge" });
+const browser = await launchBrowser(chromium);
 const errors = [];
 try {
   const page = await browser.newPage({
@@ -72,6 +75,8 @@ try {
   const fixtures = [];
   for (let i = 0; i < 3; i++) {
     const r = await page.request.post(url + "/api/ocorrencias", {
+      // APIRequestContext is not a browser fetch: send the Origin the app itself would send.
+      headers: { origin: url },
       data: {
         category_id: "category-1",
         subcategory: "Buraco",
@@ -87,10 +92,13 @@ try {
     assert.equal(r.status(), 200);
     fixtures.push(await r.json());
   }
+  // A URL é a fonte do módulo aberto: recarregar /materiais permanece em Almoxarifado (e exige o fallback de SPA do servidor).
+  assert.equal(new URL(page.url()).pathname, "/materiais");
   await page.reload();
   await page
-    .getByRole("heading", { name: "Visão geral", exact: true })
+    .getByRole("heading", { name: "Almoxarifado", exact: true })
     .waitFor();
+  assert.equal(new URL(page.url()).pathname, "/materiais");
   await navigate(page, "Kanban de equipes");
   const board = page.getByRole("region", {
     name: "Quadro de gestão das equipes",
@@ -111,6 +119,8 @@ try {
   await page
     .getByRole("button", { name: "Regras do quadro", exact: true })
     .click();
+  // Só lê a ocupação depois que os cartões criados antes da recarga chegaram ao quadro.
+  await card(fixtures[0]).waitFor();
   const currentTriage = await column("EM_TRIAGEM")
     .locator(".kanban-card")
     .count();
@@ -142,12 +152,12 @@ try {
     ).status,
     "EM_TRIAGEM",
   );
-  assert.equal(
-    await column("EM_TRIAGEM")
-      .locator(`[data-card-key="occurrence:${fixtures[0].id}"]`)
-      .count(),
-    1,
-  );
+  // A atualização do quadro é assíncrona (recarga após a ação e a automática de 15 s): espera pela condição, não por contagem imediata.
+  await expect(
+    column("EM_TRIAGEM").locator(
+      `[data-card-key="occurrence:${fixtures[0].id}"]`,
+    ),
+  ).toHaveCount(1);
   await card(fixtures[1]).dragTo(column("EM_TRIAGEM").locator("header"));
   await page
     .getByRole("alert")
@@ -221,8 +231,8 @@ try {
   const order = orders.find((o) => o.occurrence_ids.includes(fixtures[0].id));
   assert.ok(order);
   const orderCard = board.locator(`[data-card-key="order:${order.id}"]`);
-  assert.equal(await card(fixtures[0]).count(), 0);
-  assert.equal(await orderCard.count(), 1);
+  await expect(card(fixtures[0])).toHaveCount(0);
+  await expect(orderCard).toHaveCount(1);
   await orderCard
     .getByLabel(`Mover ${order.code}`, { exact: true })
     .selectOption("EM_EXECUCAO");
@@ -245,11 +255,11 @@ try {
     "PROGRAMADA",
   );
   await start.getByRole("button", { name: "Cancelar", exact: true }).click();
+  // Recarregar em /kanban mantém o quadro aberto (link direto), sem passar pela Visão geral.
+  assert.equal(new URL(page.url()).pathname, "/kanban");
   await page.reload();
-  await page
-    .getByRole("heading", { name: "Visão geral", exact: true })
-    .waitFor();
-  await navigate(page, "Kanban de equipes");
+  assert.equal(new URL(page.url()).pathname, "/kanban");
+  await board.waitFor();
   await column("IDENTIFICADA").waitFor();
   const ordered = await column("IDENTIFICADA")
     .locator(".kanban-card")
@@ -338,6 +348,8 @@ try {
   await reader
     .getByRole("region", { name: "Quadro de gestão das equipes" })
     .waitFor();
+  // Garante que há cartões renderizados antes de afirmar a ausência de controles de edição.
+  await reader.locator(".kanban-card").first().waitFor();
   assert.equal(
     await reader.locator('.kanban-card[draggable="true"]').count(),
     0,

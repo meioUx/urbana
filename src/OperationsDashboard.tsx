@@ -2,11 +2,7 @@ import { useMemo, useState } from "react";
 import { teamColor } from "./kanban-model.mjs";
 import "./operations-dashboard.css";
 
-const closed = (s: string) =>
-  ["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(s);
 const number = (v: number) => v.toLocaleString("pt-BR");
-const localDay = (value: Date) =>
-  `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 const states = [
   { status: "PROGRAMADA", label: "Programadas", color: "#d48c28" },
   { status: "EM_DESLOCAMENTO", label: "Em deslocamento", color: "#929527" },
@@ -15,9 +11,9 @@ const states = [
   { status: "DEVOLVIDA", label: "Devolvidas", color: "#a46a1c" },
 ];
 
+/** Visão geral: indicadores agregados no servidor (`GET /api/dashboard`), sem listas de registros. */
 export default function OperationsDashboard({
-  rows,
-  orders,
+  dashboard,
   boot,
   lastSync,
   syncError,
@@ -25,65 +21,34 @@ export default function OperationsDashboard({
   onRefresh,
 }: any) {
   const [days, setDays] = useState(14);
-  const activeRows = rows.filter((r: any) => !closed(r.status));
-  const openOrders = orders.filter((o: any) => !closed(o.status));
-  const running = openOrders.filter((o: any) =>
-    ["EM_EXECUCAO", "EM_DESLOCAMENTO"].includes(o.status),
-  );
+  const openOrders = dashboard.open_orders;
   const teams = boot.catalogs.filter((c: any) => c.kind === "equipes");
-  const busyTeams = new Set(running.map((o: any) => o.team_id)).size;
-  const overdue = openOrders.filter(
-    (o: any) => Date.parse(o.due_at) < Date.now(),
-  ).length;
-  const trend = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return Array.from({ length: days }, (_, index) => {
-      const day = new Date(today);
-      day.setDate(today.getDate() - days + 1 + index);
-      const key = localDay(day);
-      return {
-        key,
-        label: day.toLocaleDateString("pt-BR", {
-          day: "2-digit",
-          month: "2-digit",
-        }),
-        incoming: rows.filter(
-          (r: any) => r.created_at && localDay(new Date(r.created_at)) === key,
-        ).length,
-        completed: orders.filter(
-          (o: any) =>
-            o.status === "CONCLUIDA" &&
-            o.completed_at &&
-            localDay(new Date(o.completed_at)) === key,
-        ).length,
-      };
-    });
-  }, [rows, orders, days]);
+  const overdue = dashboard.overdue;
+  const byStatus = dashboard.orders_by_status;
+  // O servidor envia os últimos 90 dias (no fuso do navegador); o seletor recorta o fim da série.
+  const trend = useMemo(
+    () =>
+      dashboard.trend.slice(-days).map((t: any) => ({
+        ...t,
+        key: t.day,
+        label: t.day.slice(8, 10) + "/" + t.day.slice(5, 7),
+      })),
+    [dashboard.trend, days],
+  ) as { key: string; label: string; incoming: number; completed: number }[];
   const priorities = boot.priorities.map((label: string) => ({
     label,
-    value: activeRows.filter((r: any) => r.priority === label).length,
+    value: dashboard.open_by_priority[label] || 0,
   }));
-  const neighborhoods = Object.entries(
-    activeRows.reduce((sum: any, r: any) => {
-      const label = r.neighborhood || "Não informado";
-      sum[label] = (sum[label] || 0) + 1;
-      return sum;
-    }, {}),
-  )
-    .map(([label, value]) => ({ label, value: Number(value) }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5);
+  const neighborhoods = dashboard.open_by_neighborhood.map((n: any) => ({
+    label: n.name,
+    value: n.value,
+  }));
   const statusData = states.map((s) => ({
     ...s,
-    value: openOrders.filter((o: any) => o.status === s.status).length,
+    value: byStatus[s.status] || 0,
   }));
-  const maxTeams = Math.max(
-    1,
-    ...teams.map(
-      (t: any) => openOrders.filter((o: any) => o.team_id === t.id).length,
-    ),
-  );
+  const teamLoad = (id: string) => dashboard.open_orders_by_team[id] || 0;
+  const maxTeams = Math.max(1, ...teams.map((t: any) => teamLoad(t.id)));
   const maxTrend = Math.max(
     1,
     ...trend.flatMap((t) => [t.incoming, t.completed]),
@@ -109,39 +74,37 @@ export default function OperationsDashboard({
         {[
           {
             label: "Demandas abertas",
-            value: activeRows.length,
-            detail: `${activeRows.filter((r: any) => r.priority === "Emergencial").length} emergenciais`,
+            value: dashboard.open,
+            detail: `${dashboard.emergency} emergenciais`,
             color: "#db5350",
           },
           {
             label: "Ordens abertas",
-            value: openOrders.length,
-            detail: `${rows.filter((r: any) => ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)).length} demandas em triagem`,
+            value: openOrders,
+            detail: `${dashboard.triage} demandas em triagem`,
             color: "#26896b",
           },
           {
             label: "Equipes em operação",
-            value: busyTeams,
+            value: dashboard.busy_teams,
             detail: `de ${teams.length} equipes cadastradas`,
             color: "#3e86c8",
           },
           {
             label: "Prazo vencido",
             value: overdue,
-            detail: `${openOrders.length ? Math.round((overdue / openOrders.length) * 100) : 0}% das OS abertas`,
+            detail: `${openOrders ? Math.round((overdue / openOrders) * 100) : 0}% das OS abertas`,
             color: "#b97521",
           },
           {
             label: "Aguardando validação",
-            value: orders.filter(
-              (o: any) => o.status === "AGUARDANDO_VALIDACAO",
-            ).length,
+            value: byStatus.AGUARDANDO_VALIDACAO || 0,
             detail: "Serviços enviados para análise",
             color: "#8470b3",
           },
           {
             label: "Serviços concluídos",
-            value: orders.filter((o: any) => o.status === "CONCLUIDA").length,
+            value: byStatus.CONCLUIDA || 0,
             detail: "Total de OS atualmente concluídas",
             color: "#26896b",
           },
@@ -257,7 +220,7 @@ export default function OperationsDashboard({
         </section>
         <section className="operations-chart">
           <h2>Andamento das ordens</h2>
-          <p>Distribuição das {openOrders.length} OS abertas</p>
+          <p>Distribuição das {openOrders} OS abertas</p>
           <div
             className="status-composition"
             role="img"
@@ -272,7 +235,7 @@ export default function OperationsDashboard({
                   key={s.status}
                   style={{
                     background: s.color,
-                    width: `${(s.value / Math.max(1, openOrders.length)) * 100}%`,
+                    width: `${(s.value / Math.max(1, openOrders)) * 100}%`,
                   }}
                   title={`${s.label}: ${s.value}`}
                 />
@@ -287,10 +250,7 @@ export default function OperationsDashboard({
                 </span>
                 <strong>{s.value}</strong>
                 <small>
-                  {openOrders.length
-                    ? Math.round((s.value / openOrders.length) * 100)
-                    : 0}
-                  %
+                  {openOrders ? Math.round((s.value / openOrders) * 100) : 0}%
                 </small>
               </div>
             ))}
@@ -301,9 +261,7 @@ export default function OperationsDashboard({
           <p>Quantidade de OS abertas por equipe</p>
           <div className="dashboard-bars">
             {teams.map((t: any) => {
-              const count = openOrders.filter(
-                (o: any) => o.team_id === t.id,
-              ).length;
+              const count = teamLoad(t.id);
               return (
                 <div className="dashboard-bar-row" key={t.id}>
                   <span>{t.name}</span>
@@ -336,7 +294,7 @@ export default function OperationsDashboard({
                 <div>
                   <i
                     style={{
-                      width: `${(p.value / Math.max(1, activeRows.length)) * 100}%`,
+                      width: `${(p.value / Math.max(1, dashboard.open)) * 100}%`,
                       background:
                         p.label === "Emergencial"
                           ? "#db5350"
@@ -352,7 +310,7 @@ export default function OperationsDashboard({
           </div>
           <div className="dashboard-neighborhoods">
             <h3>Maior concentração por bairro</h3>
-            {neighborhoods.map((n) => (
+            {neighborhoods.map((n: any) => (
               <span key={n.label}>
                 {n.label}
                 <strong>{n.value}</strong>
@@ -362,7 +320,7 @@ export default function OperationsDashboard({
           </div>
         </section>
       </div>
-      <p className="dashboard-sync" role="status">
+      <p className="dashboard-sync">
         {lastSync
           ? `Última atualização: ${new Date(lastSync).toLocaleString("pt-BR")} · atualização automática a cada 15 segundos`
           : ""}

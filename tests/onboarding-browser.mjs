@@ -1,3 +1,4 @@
+import { launchBrowser } from "./support/browser.mjs";
 import { chromium } from "./map-browser-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
@@ -69,7 +70,7 @@ app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
 const server = app.listen(0, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const base = "http://127.0.0.1:" + server.address().port;
-const browser = await chromium.launch({ headless: true, channel: "msedge" });
+const browser = await launchBrowser(chromium);
 const errors = [],
   writes = [];
 async function session(
@@ -112,6 +113,7 @@ async function session(
     assert.equal(
       (
         await context.request.post(base + "/api/auth/login", {
+          headers: { origin: base },
           data: { email, password: "Testing@2026" },
         })
       ).status(),

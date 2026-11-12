@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { summarizeTeam } from "./dispatch-model.mjs";
+import {
+  OPEN_OCCURRENCE_STATUSES,
+  OPEN_ORDER_STATUSES,
+} from "./modules/workspace/useServerData";
 import "./dispatch-context.css";
 
 const labels: Record<string, string> = {
@@ -9,6 +13,14 @@ const labels: Record<string, string> = {
   AGUARDANDO_VALIDACAO: "Em validação",
   DEVOLVIDA: "Devolvida",
 };
+// Só o trabalho aberto: OS abertas (a carga ignora concluídas e canceladas), o planejamento aberto e
+// as ocorrências em andamento (endereços das OS abertas).
+const fetchContext = (api: any) =>
+  Promise.all([
+    api(`/ordens-servico?status=${OPEN_ORDER_STATUSES.join(",")}`),
+    api("/planejamento"),
+    api(`/ocorrencias?status=${OPEN_OCCURRENCE_STATUSES.join(",")}`),
+  ]);
 const date = (v: string) =>
   v ? v.slice(0, 10).split("-").reverse().join("/") : "Sem data";
 
@@ -31,11 +43,7 @@ export default function DispatchContext({
     let active = true;
     const load = async () => {
       try {
-        const [orders, planning, occurrences] = await Promise.all([
-          api("/ordens-servico"),
-          api("/planejamento"),
-          api("/ocorrencias"),
-        ]);
+        const [orders, planning, occurrences] = await fetchContext(api);
         if (active) {
           setData({ orders, planning, occurrences });
           setError("");
@@ -103,11 +111,7 @@ export default function DispatchContext({
             className="text-button"
             onClick={() => {
               setLoading(true);
-              Promise.all([
-                api("/ordens-servico"),
-                api("/planejamento"),
-                api("/ocorrencias"),
-              ])
+              fetchContext(api)
                 .then(([orders, planning, occurrences]) => {
                   setData({ orders, planning, occurrences });
                   setError("");

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useModalDialog } from "./shared/ui";
 import { CalendarDays, CheckCircle2, X } from "lucide-react";
 import { occurrenceDeadline, planningPriority } from "./planning-model.mjs";
 import { summarizeTeam } from "./dispatch-model.mjs";
@@ -55,9 +56,7 @@ export default function PlanningPlanDialog({
     .filter(Boolean)
     .sort()[0];
   const load = team ? summarizeTeam(orders, team, date) : null;
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
+  useModalDialog(dialog);
   return (
     <dialog
       ref={dialog}

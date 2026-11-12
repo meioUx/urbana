@@ -1,6 +1,7 @@
 import { useState } from "react";
 import "./inventory.css";
 import { FileCheck2, FileText, Plus, Trash2, Upload } from "lucide-react";
+import { TableScroll } from "./shared/ui";
 
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
@@ -269,7 +270,7 @@ export default function InvoicePanel({
               />
             </label>
           </div>
-          <div className="table-scroll">
+          <TableScroll label="Itens da nota fiscal">
             <table className="invoice-items">
               <thead>
                 <tr>
@@ -281,7 +282,9 @@ export default function InvoicePanel({
                   <th>Valor unit.</th>
                   <th>Total</th>
                   <th>Etapa do gasto</th>
-                  <th />
+                  <th>
+                    <span className="visually-hidden">Ações</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -409,7 +412,7 @@ export default function InvoicePanel({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           <div className="invoice-actions">
             <button
               type="button"

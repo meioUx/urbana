@@ -1,5 +1,7 @@
+import { launchBrowser } from "./support/browser.mjs";
 import { skipInitialOnboarding } from "./onboarding-fixture.mjs";
 import { chromium } from "./map-browser-fixture.mjs";
+import { navigate } from "./navigation.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,7 +26,7 @@ app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
 const server = app.listen(0, "127.0.0.1");
 await new Promise((resolve) => server.once("listening", resolve));
 const url = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ headless: true, channel: "msedge" });
+const browser = await launchBrowser(chromium);
 
 try {
   const page = await browser.newPage({
@@ -39,10 +41,8 @@ try {
   await page
     .getByRole("heading", { name: "Visão geral", exact: true })
     .waitFor();
-  await page
-    .locator("nav")
-    .getByRole("button", { name: "Controle do setor", exact: true })
-    .click();
+  // "Controle do setor" fica dentro do grupo recolhido "Operações"; navigate() expande o grupo antes de clicar.
+  await navigate(page, "Controle do setor");
   await page
     .getByRole("heading", { name: "Controle do setor", exact: true })
     .waitFor();

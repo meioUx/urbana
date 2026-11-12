@@ -1,3 +1,4 @@
+import { launchBrowser } from "./support/browser.mjs";
 import { skipInitialOnboarding } from "./onboarding-fixture.mjs";
 import { chromium, expect } from "./map-browser-fixture.mjs";
 import assert from "node:assert/strict";
@@ -46,10 +47,11 @@ try {
     );
   const app = createApp(db);
   app.use(express.static(resolve("dist")));
+  app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
   server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const base = "http://127.0.0.1:" + server.address().port;
-  browser = await chromium.launch({ headless: true, channel: "msedge" });
+  browser = await launchBrowser(chromium);
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1000 },
   });
@@ -86,6 +88,7 @@ try {
   const changed = await page.request.post(
     base + "/api/ocorrencias/" + row.id + "/classificar",
     {
+      headers: { origin: base },
       data: {
         version: row.version,
         category_id: "category-1",

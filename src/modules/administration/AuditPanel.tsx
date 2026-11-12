@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { TableScroll } from "../../shared/ui";
 const fields = {
   entity_type: "Tipo de entidade",
   entity_id: "ID da entidade",
@@ -102,7 +103,7 @@ export default function AuditPanel({
           Próxima
         </button>
       </div>
-      <div className="table-scroll">
+      <TableScroll label="Tabela de auditoria">
         <table>
           <thead>
             <tr>
@@ -125,7 +126,7 @@ export default function AuditPanel({
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
       {!busy && !page.items.length && !error && (
         <p>Nenhum evento nos filtros selecionados.</p>
       )}

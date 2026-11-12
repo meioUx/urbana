@@ -15,7 +15,12 @@ const groups = [
     pages: ["sector-control", "teams", "materials", "equipment", "field"],
   },
 ];
-export default function SidebarNav({ nav, page, rows, onNavigate }: any) {
+export default function SidebarNav({
+  nav,
+  page,
+  triageCount,
+  onNavigate,
+}: any) {
   const [open, setOpen] = useState("");
   useLayoutEffect(() => {
     setOpen(groups.find((g) => g.pages.includes(page))?.id || "");
@@ -31,13 +36,10 @@ export default function SidebarNav({ nav, page, rows, onNavigate }: any) {
       <span>
         {id === "occurrences" && nested ? "Todas as ocorrências" : label}
       </span>
-      {id === "triagem" && (
-        <b aria-label="Demandas em triagem">
-          {
-            rows.filter((r: any) =>
-              ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status),
-            ).length
-          }
+      {id === "triagem" && triageCount !== null && (
+        <b>
+          <span>{triageCount}</span>
+          <span className="visually-hidden"> demandas em triagem</span>
         </b>
       )}
     </button>
@@ -46,7 +48,7 @@ export default function SidebarNav({ nav, page, rows, onNavigate }: any) {
     <nav aria-label="Menu principal">
       {nav
         .filter(([id]: any) =>
-          ["dashboard", "map", "kanban", "planning"].includes(id),
+          ["dashboard", "map", "kanban", "planning", "works"].includes(id),
         )
         .map((item: any) => entry(item))}
       <div className="nav-separator" />

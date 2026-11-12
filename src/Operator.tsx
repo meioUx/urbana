@@ -13,9 +13,34 @@ import {
   RefreshCw,
   Send,
   TriangleAlert,
-  WifiOff,
 } from "lucide-react";
 import { fieldDraft } from "./field-storage";
+import {
+  capturedNow,
+  hasValidPhoto,
+  projectList,
+  projectOrder,
+  validateAction,
+  type ActionKind,
+} from "./modules/field/outbox-model.mjs";
+import { useFieldSync } from "./modules/field/useFieldSync";
+import type { FieldSync, SyncState } from "./modules/field/sync";
+import {
+  cachedTasks,
+  forgetSession,
+  forgetUserCache,
+  isNetworkError,
+  loadOrder,
+  loadTasks,
+  prefetchOrders,
+  rememberSession,
+} from "./modules/field/cache";
+import {
+  CachedNotice,
+  LocalPhoto,
+  OutboxPanel,
+  SyncBanner,
+} from "./modules/field/SyncStatus";
 import "./operator.css";
 type Props = {
   boot: any;
@@ -101,6 +126,16 @@ function checkedPhoto(file?: File) {
     throw new Error("A foto deve ter até 15 MB.");
   return file;
 }
+/** Contexto offline compartilhado com a tela da OS: fila, relógio do servidor e situação da sessão. */
+type Offline = {
+  sync: FieldSync;
+  syncState: SyncState;
+  offset: () => number;
+  /** true quando a ação deve ir para a fila em vez de ser enviada diretamente. */
+  mustQueue: (orderId: string) => boolean;
+  /** Um envio direto recebeu 401: a ação vai para a fila e a tela pede novo login. */
+  expire: () => void;
+};
 export default function Operator({ boot, api, onLogout, onManagement }: Props) {
   const [tab, setTab] = useState("tasks"),
     [list, setList] = useState<any>({ orders: [], records: [], push: {} }),
@@ -112,7 +147,17 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
     [loading, setLoading] = useState(true),
     [online, setOnline] = useState(navigator.onLine),
     [filter, setFilter] = useState("active"),
-    [notificationBusy, setNotificationBusy] = useState(false);
+    [notificationBusy, setNotificationBusy] = useState(false),
+    [savedAt, setSavedAt] = useState<string | null>(null),
+    [sessionExpired, setSessionExpired] = useState(false),
+    [confirmLogout, setConfirmLogout] = useState(false);
+  const { sync, state: syncState } = useFieldSync(boot.user);
+  // Título da aba por tela (WCAG 2.4.2).
+  const openCode = list.orders.find((o: any) => o.id === orderId)?.code;
+  useEffect(() => {
+    document.title = `${orderId ? (openCode ? `Ordem ${openCode}` : "Ordem de serviço") : tab === "new" ? "Registrar ocorrência" : tab === "records" ? "Meus registros" : "Minhas tarefas"} | Urbana Campo`;
+  }, [tab, orderId, openCode]);
+  const userId = boot.user.id;
   const [guideStep, setGuideStep] = useState<any>(null);
   useEffect(() => {
     const navigate = (event: Event) => {
@@ -138,35 +183,85 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
     };
   }, [list.orders]);
   const previous = useRef<string | null>(null),
-    fetching = useRef(false);
+    fetching = useRef(false),
+    offset = useRef(0),
+    fresh = useRef(false),
+    leaving = useRef(false);
   const refresh = async () => {
     if (fetching.current) return;
     fetching.current = true;
     try {
-      const data = await api("/campo");
+      const loaded = await loadTasks(api, userId);
+      const data = loaded.data;
       const signature = data.orders
         .map((o: any) => `${o.id}:${o.updated_at}`)
         .join("|");
       if (previous.current !== null && previous.current !== signature)
         setNotice("Suas tarefas foram atualizadas. Confira a lista.");
       previous.current = signature;
+      offset.current = loaded.offset;
+      fresh.current = true;
       setList(data);
+      setSavedAt(null);
+      setSessionExpired(false);
       setError("");
+      void prefetchOrders(api, userId, data.orders, () => !leaving.current);
+      void sync.flush();
     } catch (e: any) {
-      setError(
-        e.status === 401
-          ? "Sua sessão expirou. Entre novamente para continuar."
-          : "Não foi possível atualizar. Seus rascunhos permanecem neste aparelho.",
-      );
+      fresh.current = false;
+      if (!previous.current) {
+        const cached = await cachedTasks(userId).catch(() => null);
+        if (cached) {
+          offset.current = cached.offset;
+          setList(cached.data);
+          setSavedAt(cached.savedAt);
+        }
+      } else setSavedAt((value) => value || new Date().toISOString());
+      if (e.status === 401) {
+        setSessionExpired(true);
+        setError("");
+      } else
+        setError(
+          isNetworkError(e) && !navigator.onLine
+            ? ""
+            : "Não foi possível atualizar. Seus rascunhos e ações guardadas permanecem neste aparelho.",
+        );
     } finally {
       setLoading(false);
       fetching.current = false;
     }
   };
   useEffect(() => {
+    // Lista salva aparece logo; a do servidor a substitui quando chegar.
+    cachedTasks(userId)
+      .then((cached) => {
+        if (!cached || fresh.current) return;
+        offset.current = cached.offset;
+        setList(cached.data);
+        setSavedAt(cached.savedAt);
+        setLoading(false);
+      })
+      .catch(() => {});
+    // Garante no cache do service worker os arquivos do app já carregados (inclusive os carregados
+    // antes de o service worker assumir a página), para /campo abrir sem rede no próximo acesso.
+    navigator.serviceWorker?.ready
+      .then((registration) => {
+        const urls = performance
+          .getEntriesByType("resource")
+          .map((entry) => entry.name)
+          .filter((url) => url.startsWith(`${window.location.origin}/assets/`));
+        registration.active?.postMessage({ type: "urbana-cache-shell", urls });
+      })
+      .catch(() => {});
     refresh();
+    const stopSynced = sync.whenSynced(() => {
+      void refresh();
+    });
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") {
+        refresh();
+        void sync.flush();
+      }
     }, 15000);
     const handleOnline = () => {
       setOnline(navigator.onLine);
@@ -179,12 +274,23 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
     window.addEventListener("offline", handleOnline);
     document.addEventListener("visibilitychange", visible);
     return () => {
+      stopSynced();
       clearInterval(timer);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOnline);
       document.removeEventListener("visibilitychange", visible);
     };
   }, []);
+  useEffect(() => {
+    if (syncState.paused === "auth") setSessionExpired(true);
+  }, [syncState.paused]);
+  // Sessão válida (bootstrap do servidor, inclusive o que substitui a sessão salva ao voltar a rede):
+  // habilita a abertura sem rede neste aparelho.
+  useEffect(() => {
+    if (!boot.offline) rememberSession(userId, boot).catch(() => {});
+  }, [boot]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A revalidação da sessão salva recebeu 401: pede novo login, como a fila faz.
+  const expired = sessionExpired || !!boot.session_expired;
   const enableNotifications = async () => {
     setNotificationBusy(true);
     try {
@@ -228,6 +334,13 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
     }
   };
   const logout = async () => {
+    if (syncState.items.length && !confirmLogout) {
+      setConfirmLogout(true);
+      return;
+    }
+    setConfirmLogout(false);
+    // A sessão offline sai antes do servidor: se o app fechar no meio, ninguém reabre estes dados sem rede.
+    await forgetSession().catch(() => {});
     try {
       if ("serviceWorker" in navigator) {
         const registration = await navigator.serviceWorker.getRegistration();
@@ -239,12 +352,27 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
           await sub.unsubscribe();
         }
       }
+      leaving.current = true;
       await onLogout();
+      await forgetUserCache(userId).catch(() => {});
     } catch (e: any) {
+      leaving.current = false;
+      if (!boot.offline) rememberSession(userId, boot).catch(() => {});
       setError(e.message);
     }
   };
-  const tasks = list.orders
+  const offline: Offline = {
+    sync,
+    syncState,
+    offset: () => offset.current,
+    mustQueue: (id: string) =>
+      !navigator.onLine ||
+      expired ||
+      syncState.items.some((i) => i.order_id === id),
+    expire: () => setSessionExpired(true),
+  };
+  const orders = projectList(list.orders, syncState.items);
+  const tasks = orders
     .filter((o: any) =>
       filter === "active"
         ? active.includes(o.status)
@@ -266,7 +394,13 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
           <small>{boot.user.name}</small>
         </div>
         <div>
-          <button aria-label="Atualizar tarefas" onClick={refresh}>
+          <button
+            aria-label="Atualizar tarefas"
+            onClick={() => {
+              refresh();
+              void sync.flush(true);
+            }}
+          >
             <RefreshCw size={21} />
           </button>
           <button aria-label="Sair da conta" onClick={logout}>
@@ -275,11 +409,40 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
         </div>
       </header>
       <main className="operator-main">
-        {!online && (
-          <div className="operator-message warning">
-            <WifiOff size={20} />
-            Sem conexão. Guarde o registro como rascunho e envie quando o sinal
-            voltar.
+        <SyncBanner
+          online={online}
+          state={syncState}
+          sessionExpired={expired}
+          onLogin={() => window.location.reload()}
+          onSyncNow={() => void sync.flush(true)}
+        />
+        {confirmLogout && (
+          <div className="operator-message warning" role="alert">
+            <span>
+              Há {syncState.items.length}{" "}
+              {syncState.items.length === 1
+                ? "ação ainda não enviada"
+                : "ações ainda não enviadas"}
+              . Elas continuam guardadas neste aparelho, visíveis só para você,
+              e serão enviadas quando você entrar de novo. As tarefas salvas
+              serão apagadas do aparelho.
+            </span>
+            <div className="operator-outbox-actions">
+              <button
+                type="button"
+                className="operator-button secondary"
+                onClick={logout}
+              >
+                Sair mesmo assim
+              </button>
+              <button
+                type="button"
+                className="operator-link-button"
+                onClick={() => setConfirmLogout(false)}
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         )}
         {error && (
@@ -315,6 +478,7 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
             version={list.orders.find((o: any) => o.id === orderId)?.updated_at}
             boot={boot}
             api={api}
+            offline={offline}
             onBack={() => {
               setOrderId(null);
               history.replaceState(null, "", "/campo");
@@ -337,6 +501,7 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
             <p className="operator-lead">
               Acompanhe o que você encontrou em campo.
             </p>
+            <CachedNotice savedAt={savedAt} />
             {list.records.map((o: any) => (
               <article className="operator-card" key={o.id}>
                 <span className="operator-status">{status[o.status]}</span>
@@ -364,15 +529,18 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
                 <h1>Minhas tarefas</h1>
               </div>
               <span className="operator-count">
-                {
-                  list.orders.filter((o: any) => active.includes(o.status))
-                    .length
-                }
+                {orders.filter((o: any) => active.includes(o.status)).length}
               </span>
             </div>
             <p className="operator-lead">
               Veja onde ir, o que fazer e envie o resultado para análise.
             </p>
+            <CachedNotice savedAt={savedAt} />
+            <OutboxPanel
+              items={syncState.items}
+              onRetry={(id) => void sync.retry(id)}
+              onDiscard={(id) => void sync.discard(id)}
+            />
             <button
               className="operator-notifications"
               disabled={notificationBusy}
@@ -395,6 +563,12 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
                 Enviadas e histórico
               </button>
             </div>
+            {filter === "history" && boot.user.role !== "Equipe de Campo" && (
+              <p className="operator-sync" role="note">
+                No acesso da gestão, o Campo recebe só as OS abertas. As
+                concluídas e canceladas estão em Ordens de serviço.
+              </p>
+            )}
             {loading ? (
               <p>Carregando tarefas...</p>
             ) : (
@@ -419,6 +593,15 @@ export default function Operator({ boot, api, onLogout, onManagement }: Props) {
                       ? "Atribuída a você"
                       : "Atribuída à equipe"}
                   </small>
+                  {(o.pending_count > 0 || o.rejected_count > 0) && (
+                    <span
+                      className={`operator-pending-badge ${o.rejected_count ? "rejected" : ""}`}
+                    >
+                      {o.rejected_count
+                        ? `${o.rejected_count} recusada${o.rejected_count > 1 ? "s" : ""} pelo servidor`
+                        : `${o.pending_count} aguardando envio`}
+                    </span>
+                  )}
                   <h2>
                     {o.occurrences[0]?.address || "Consultar locais da ordem"}
                   </h2>
@@ -825,13 +1008,55 @@ function Register({ boot, api, onSaved }: any) {
     </>
   );
 }
-function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
+const sentMessages: Record<string, string> = {
+  assumir: "Deslocamento registrado.",
+  iniciar: "Execução iniciada. Registre o resultado do serviço.",
+  concluir: "Resultado enviado para análise. Aguarde a validação da gestão.",
+  devolver: "Ordem devolvida à gestão com a justificativa informada.",
+  material: "Material utilizado registrado.",
+  equipamento: "Equipamento vinculado.",
+};
+const queuedMessages: Record<string, string> = {
+  assumir:
+    "Deslocamento guardado neste aparelho. Será enviado automaticamente quando houver conexão.",
+  iniciar:
+    "Chegada e início guardados neste aparelho. Registre o resultado do serviço.",
+  concluir:
+    "Resultado guardado neste aparelho. Será enviado para análise automaticamente quando houver conexão.",
+  devolver:
+    "Devolução guardada neste aparelho. Será enviada automaticamente quando houver conexão.",
+  material: "Material guardado neste aparelho. Será enviado automaticamente.",
+  equipamento:
+    "Equipamento guardado neste aparelho. Será enviado automaticamente.",
+};
+function Task({
+  guideStep,
+  id,
+  version,
+  boot,
+  api,
+  offline,
+  onBack,
+  onChange,
+}: {
+  guideStep: any;
+  id: string;
+  version?: string;
+  boot: any;
+  api: Props["api"];
+  offline: Offline;
+  onBack: () => void;
+  onChange: () => Promise<void>;
+}) {
   const errorRef = useRef<HTMLDivElement>(null);
-  const [order, setOrder] = useState<any>(null),
+  const userId = boot.user.id;
+  const { sync, syncState } = offline;
+  const [serverOrder, setServerOrder] = useState<any>(null),
+    [savedAt, setSavedAt] = useState<string | null>(null),
     [error, setError] = useState(""),
     [success, setSuccess] = useState(""),
     [busy, setBusy] = useState(false),
-    [point, setPoint] = useState<any>({ lat: "", lng: "" }),
+    [point, setPointState] = useState<any>({ lat: "", lng: "" }),
     [notes, setNotes] = useState(""),
     [reason, setReason] = useState(""),
     [returning, setReturning] = useState(guideStep?.id === "return");
@@ -841,10 +1066,22 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
       errorRef.current?.scrollIntoView({ block: "center" });
     }
   }, [error, busy]);
-  const load = async () => {
+  const load = async (network = true) => {
     try {
-      setOrder(await api(`/ordens-servico/${id}`));
-      setError("");
+      const loaded = await loadOrder(
+        api,
+        userId,
+        id,
+        network && navigator.onLine,
+      );
+      if (loaded) {
+        setServerOrder(loaded.data);
+        setSavedAt(loaded.savedAt);
+        setError("");
+      } else
+        setError(
+          "Esta ordem ainda não foi salva neste aparelho. Conecte-se à internet para abri-la pela primeira vez.",
+        );
     } catch (e: any) {
       setError(e.message);
     }
@@ -852,48 +1089,97 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
   useEffect(() => {
     load();
   }, [id, version]);
+  // A sincronização atualizou o cache desta OS (envio aceito ou recusado): relê a cópia local.
+  useEffect(() => {
+    if (syncState.cacheRevision) load(false);
+  }, [syncState.cacheRevision]);
   useEffect(() => {
     fieldDraft(`notes:${boot.user.id}:${id}`)
       .then((v) => {
         if (v) setNotes(v);
       })
       .catch(() => {});
+    fieldDraft(`point:${boot.user.id}:${id}`)
+      .then((v) => {
+        if (v)
+          setPointState((current: any) => (current.lat === "" ? v : current));
+      })
+      .catch(() => {});
   }, [id]);
-  const action = async (name: string, body: any = {}) => {
+  // GPS do local fica no aparelho: reabrir a OS sem rede não perde a chegada capturada.
+  const setPoint = (value: any) => {
+    setPointState(value);
+    fieldDraft(`point:${boot.user.id}:${id}`, value).catch(() => {});
+  };
+  const items = syncState.items.filter((i) => i.order_id === id);
+  const order = serverOrder ? projectOrder(serverOrder, items) : null;
+  const categories = boot.catalogs.filter((c: any) => c.kind === "categorias");
+  /** Guarda a ação na fila depois de antecipar as validações do servidor. */
+  const queue = async (
+    kind: ActionKind,
+    body: any,
+    requestId: string,
+    capturedAt: string,
+    file?: Blob | null,
+  ) => {
+    const problem = validateAction(order, kind, body, categories);
+    if (problem) throw new Error(problem.message);
+    await sync.enqueue({
+      id: requestId,
+      kind,
+      order: { id, code: serverOrder.code, version: serverOrder.version },
+      body,
+      file,
+      captured_at: capturedAt,
+    });
+  };
+  const action = async (name: ActionKind, body: any = {}) => {
     if (busy) return;
     setBusy(true);
     setError("");
     setSuccess("");
+    // Identificador e hora reais do toque: valem para o envio direto e, se a rede falhar, para a fila.
+    const requestId = crypto.randomUUID(),
+      capturedAt = capturedNow(offline.offset());
     try {
-      await api(`/ordens-servico/${id}/${name}`, "POST", {
-        ...body,
-        version: order.version,
-      });
-      setSuccess(
-        (
-          {
-            assumir: "Deslocamento registrado.",
-            iniciar: "Execução iniciada. Registre o resultado do serviço.",
-            concluir:
-              "Resultado enviado para análise. Aguarde a validação da gestão.",
-            devolver: "Ordem devolvida à gestão com a justificativa informada.",
-            material: "Material utilizado registrado.",
-            equipamento: "Equipamento vinculado.",
-          } as Record<string, string>
-        )[name] || "Operação registrada.",
-      );
-      await load();
-      try {
-        await onChange();
-      } catch {
-        setError(
-          "A operação foi registrada, mas a lista não foi atualizada. Volte às tarefas e confira antes de repetir.",
-        );
+      if (!offline.mustQueue(id)) {
+        try {
+          await api(
+            `/ordens-servico/${id}/${name}`,
+            "POST",
+            name === "equipamento"
+              ? body
+              : { ...body, version: order.version, request_id: requestId },
+          );
+          setSuccess(sentMessages[name] || "Operação registrada.");
+          await load();
+          try {
+            await onChange();
+          } catch {
+            setError(
+              "A operação foi registrada, mas a lista não foi atualizada. Volte às tarefas e confira antes de repetir.",
+            );
+          }
+          if (name === "concluir")
+            await fieldDraft(
+              `notes:${boot.user.id}:${id}`,
+              undefined,
+              true,
+            ).catch(() => {});
+          return;
+        } catch (e: any) {
+          if (e.status === 401) offline.expire();
+          else if (!isNetworkError(e)) throw e;
+          // Sem resposta (ou sessão expirada): a mesma ação (mesmo request_id) vai para a fila; se já tiver sido aplicada, o servidor não repete.
+        }
       }
+      await queue(name, body, requestId, capturedAt);
+      setSuccess(queuedMessages[name] || "Ação guardada neste aparelho.");
       if (name === "concluir")
         await fieldDraft(`notes:${boot.user.id}:${id}`, undefined, true).catch(
           () => {},
         );
+      if (name === "devolver") setReturning(false);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -918,7 +1204,15 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
           <ArrowLeft />
           Voltar às tarefas
         </button>
-        <p>{error || "Carregando ordem..."}</p>
+        <p role={error ? "alert" : undefined}>
+          {error || "Carregando ordem..."}
+        </p>
+        <OutboxPanel
+          items={syncState.items}
+          orderId={id}
+          onRetry={(i) => void sync.retry(i)}
+          onDiscard={(i) => void sync.discard(i)}
+        />
       </>
     );
   const cat = (kind: string) =>
@@ -927,6 +1221,8 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
       boot.catalogs.find((c: any) => c.id === id)?.name || "—";
   const isActive = active.includes(order.status),
     started = order.status === "EM_EXECUCAO";
+  const localFile = (itemId?: string) =>
+    items.find((i) => i.id === itemId)?.file || null;
   return (
     <>
       <button className="operator-back" onClick={onBack}>
@@ -940,6 +1236,7 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
         </div>
         <span className="operator-status">{status[order.status]}</span>
       </div>
+      <CachedNotice savedAt={savedAt} />
       {error && (
         <div
           ref={errorRef}
@@ -972,10 +1269,19 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
           {success}
         </div>
       )}
+      <OutboxPanel
+        items={syncState.items}
+        orderId={id}
+        busy={busy}
+        onRetry={(i) => void sync.retry(i)}
+        onDiscard={(i) => void sync.discard(i)}
+      />
       {order.status === "AGUARDANDO_VALIDACAO" && (
         <div className="operator-message">
           <CheckCircle2 />
-          Resultado enviado. Aguarde a análise da gestão para o fechamento.
+          {items.some((i) => i.kind === "concluir" && i.status !== "rejected")
+            ? "Resultado guardado neste aparelho. Será enviado para análise quando houver conexão."
+            : "Resultado enviado. Aguarde a análise da gestão para o fechamento."}
         </div>
       )}
       {order.status === "CONCLUIDA" && (
@@ -1132,9 +1438,11 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
             key={`${id}:antes`}
             stage="antes"
             order={order}
+            serverOrder={serverOrder}
             boot={boot}
             point={point}
             api={api}
+            offline={offline}
             onChange={load}
           />
           {!started && (
@@ -1161,6 +1469,12 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
               <p key={m.id}>
                 {name(m.material_id)} · {m.quantity}{" "}
                 {boot.catalogs.find((c: any) => c.id === m.material_id)?.unit}
+                {m.pending && (
+                  <span className="operator-pending-tag">
+                    {" "}
+                    · aguardando envio
+                  </span>
+                )}
               </p>
             ))}
             <form
@@ -1202,6 +1516,50 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
               </button>
             </form>
           </section>
+          {cat("equipamentos").length > 0 && (
+            <section className="operator-card">
+              <h2>Equipamentos utilizados</h2>
+              {order.equipment.map((e: any) => (
+                <p key={e.equipment_id}>
+                  {name(e.equipment_id)}
+                  {e.pending && (
+                    <span className="operator-pending-tag">
+                      {" "}
+                      · aguardando envio
+                    </span>
+                  )}
+                </p>
+              ))}
+              <form
+                className="operator-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const data = new FormData(e.currentTarget);
+                  action("equipamento", {
+                    equipment_id: data.get("equipment_id"),
+                  });
+                }}
+              >
+                <Field label="Equipamento utilizado">
+                  <select
+                    name="equipment_id"
+                    aria-label="Equipamento utilizado"
+                    required
+                  >
+                    <option value="">Selecione</option>
+                    {cat("equipamentos").map((m: any) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <button className="operator-button secondary" disabled={busy}>
+                  Vincular equipamento
+                </button>
+              </form>
+            </section>
+          )}
           <section className="operator-card">
             <h2 data-guide="field-result">Resultado do serviço</h2>
             <p>
@@ -1213,9 +1571,11 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
               key={`${id}:depois`}
               stage="depois"
               order={order}
+              serverOrder={serverOrder}
               boot={boot}
               point={point}
               api={api}
+              offline={offline}
               onChange={load}
             />
             <form
@@ -1297,28 +1657,45 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
           <div className="operator-evidence">
             {order.evidence
               .filter((e: any) => e.mime.startsWith("image/"))
-              .map((e: any) => (
-                <a
-                  key={e.id}
-                  href={`/api/anexos/${e.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <img
-                    src={`/api/anexos/${e.id}`}
-                    alt={`Foto ${e.stage} do serviço`}
-                  />
-                  <small>
-                    {e.stage} · {date(e.created_at)}
-                  </small>
-                </a>
-              ))}
+              .map((e: any) =>
+                e.pending ? (
+                  <figure key={e.id} className="operator-local-photo">
+                    <LocalPhoto
+                      file={localFile(e.local_item)}
+                      alt={`Foto ${e.stage} do serviço (aguardando envio)`}
+                    />
+                    <small>
+                      {e.stage} · {date(e.captured_at || e.created_at)} ·
+                      aguardando envio
+                    </small>
+                  </figure>
+                ) : (
+                  <a
+                    key={e.id}
+                    href={`/api/anexos/${e.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <img
+                      src={`/api/anexos/${e.id}`}
+                      alt={`Foto ${e.stage} do serviço`}
+                    />
+                    <small>
+                      {e.stage} · {date(e.captured_at || e.created_at)}
+                    </small>
+                  </a>
+                ),
+              )}
           </div>
         </section>
       )}
       {order.completion_notes && (
         <section className="operator-card">
-          <h2>Relato enviado</h2>
+          <h2>
+            {items.some((i) => i.kind === "concluir" && i.status !== "rejected")
+              ? "Relato guardado (aguardando envio)"
+              : "Relato enviado"}
+          </h2>
           <p>{order.completion_notes}</p>
           <small>
             {order.executed_by} · {date(order.finished_at)}
@@ -1328,14 +1705,25 @@ function Task({ guideStep, id, version, boot, api, onBack, onChange }: any) {
     </>
   );
 }
-function Evidence({ stage, order, boot, point, api, onChange }: any) {
+function Evidence({
+  stage,
+  order,
+  serverOrder,
+  boot,
+  point,
+  api,
+  offline,
+  onChange,
+}: any) {
   const key = `photo:${boot.user.id}:${order.id}:${stage}`;
+  const { sync } = offline as Offline;
   const [draft, setDraft] = useState<any>({
       file: null,
       request_id: crypto.randomUUID(),
     }),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [queued, setQueued] = useState("");
   useEffect(() => {
     fieldDraft(key)
       .then((v) => {
@@ -1346,25 +1734,67 @@ function Evidence({ stage, order, boot, point, api, onChange }: any) {
   const upload = async () => {
     setBusy(true);
     setError("");
+    setQueued("");
     try {
       if (point.lat === "" || point.lng === "")
         throw new Error("Capture o GPS do local antes de enviar a foto.");
-      const form = new FormData();
-      form.append("file", draft.file);
-      form.append("stage", stage);
-      form.append("lat", String(point.lat));
-      form.append("lng", String(point.lng));
-      form.append("request_id", draft.request_id);
-      await api(`/ordens-servico/${order.id}/anexos`, "POST", form);
-      await fieldDraft(key, undefined, true);
+      if (!(offline as Offline).mustQueue(order.id)) {
+        try {
+          const form = new FormData();
+          form.append("file", draft.file);
+          form.append("stage", stage);
+          form.append("lat", String(point.lat));
+          form.append("lng", String(point.lng));
+          form.append("request_id", draft.request_id);
+          await api(`/ordens-servico/${order.id}/anexos`, "POST", form);
+          await fieldDraft(key, undefined, true);
+          setDraft({ file: null, request_id: crypto.randomUUID() });
+          await onChange();
+          return;
+        } catch (e: any) {
+          if (e.status === 401) (offline as Offline).expire();
+          else if (!isNetworkError(e)) throw e;
+        }
+      }
+      // Sem rede (ou com ações anteriores desta OS na fila): a foto entra na fila com o mesmo request_id.
+      const body = {
+        stage,
+        lat: Number(point.lat),
+        lng: Number(point.lng),
+        mime: draft.file.type,
+      };
+      const problem = validateAction(order, "anexo", body, boot.catalogs);
+      if (problem) throw new Error(problem.message);
+      await sync.enqueue({
+        id: draft.request_id,
+        kind: "anexo",
+        order: {
+          id: order.id,
+          code: order.code,
+          version: serverOrder?.version,
+        },
+        body,
+        file: draft.file,
+        captured_at:
+          draft.captured_at || capturedNow((offline as Offline).offset()),
+      });
+      await fieldDraft(key, undefined, true).catch(() => {});
       setDraft({ file: null, request_id: crypto.randomUUID() });
-      await onChange();
+      setQueued(
+        "Foto guardada neste aparelho. Será enviada automaticamente quando houver conexão.",
+      );
     } catch (e: any) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
   };
+  const real = {
+    ...order,
+    evidence: order.evidence.filter((e: any) => !e.pending),
+  };
+  const sent = hasValidPhoto(real, stage),
+    waiting = !sent && hasValidPhoto(order, stage);
   return (
     <div
       className="operator-upload"
@@ -1375,23 +1805,17 @@ function Evidence({ stage, order, boot, point, api, onChange }: any) {
       <h3>
         Foto {stage === "antes" ? "antes do serviço" : "depois do serviço"}
       </h3>
-      {order.evidence.some(
-        (e: any) =>
-          e.stage === stage &&
-          e.mime.startsWith("image/") &&
-          (e.captured_at || e.created_at) >=
-            (stage === "antes"
-              ? order.reprogrammed_at || order.created_at
-              : [
-                  order.started_at,
-                  order.reopened_at,
-                  order.reprogrammed_at,
-                  order.created_at,
-                ]
-                  .filter(Boolean)
-                  .sort()
-                  .at(-1)),
-      ) && <p className="operator-gps">✓ Foto enviada</p>}
+      {sent && <p className="operator-gps">✓ Foto enviada</p>}
+      {waiting && (
+        <p className="operator-gps pending">
+          ✓ Foto guardada · aguardando envio
+        </p>
+      )}
+      {queued && (
+        <p className="operator-sync" role="status">
+          {queued}
+        </p>
+      )}
       {error && (
         <p role="alert" className="operator-upload-error">
           {error}
@@ -1410,10 +1834,16 @@ function Evidence({ stage, order, boot, point, api, onChange }: any) {
             try {
               const file = checkedPhoto(e.target.files?.[0]);
               if (file) {
-                const next = { file, request_id: crypto.randomUUID() };
+                // captured_at: momento em que a foto foi tirada/escolhida, no relógio do servidor.
+                const next = {
+                  file,
+                  request_id: crypto.randomUUID(),
+                  captured_at: capturedNow((offline as Offline).offset()),
+                };
                 setDraft(next);
                 await fieldDraft(key, next);
                 setError("");
+                setQueued("");
               }
             } catch (err: any) {
               setError(err.message);

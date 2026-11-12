@@ -1,3 +1,4 @@
+import { launchBrowser } from "./support/browser.mjs";
 import { skipInitialOnboarding } from "./onboarding-fixture.mjs";
 import { navigate } from "./navigation.mjs";
 import { chromium } from "./map-browser-fixture.mjs";
@@ -20,10 +21,11 @@ await seed(db);
 await skipInitialOnboarding(db);
 const app = createApp(db);
 app.use(express.static(resolve("dist")));
+app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
 const server = app.listen(0, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const testUrl = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ headless: true, channel: "msedge" });
+const browser = await launchBrowser(chromium);
 try {
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1000 },
@@ -70,6 +72,45 @@ try {
       .innerText(),
     String(dashboardOpen.length),
   );
+  // R4: o painel recebe só agregados; os números continuam iguais aos calculados pelas listas.
+  const openRows = dashboardData.rows.filter(
+    (r) => !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(r.status),
+  );
+  assert.equal(
+    await page
+      .locator(".operations-kpi")
+      .filter({ hasText: "Demandas abertas" })
+      .locator("strong")
+      .innerText(),
+    String(openRows.length),
+  );
+  const occurrencesGroup = page
+    .getByRole("navigation", { name: "Menu principal" })
+    .getByRole("button", { name: "Ocorrências", exact: true });
+  await occurrencesGroup.click();
+  // R7: a contagem fica visível e o nome acessível do botão leva "demandas em triagem"
+  // (antes era aria-label em <b>, atributo que leitores de tela ignoram nesse elemento).
+  const triageCount = String(
+    dashboardData.rows.filter((r) =>
+      ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status),
+    ).length,
+  );
+  const triageButton = page
+    .getByRole("navigation", { name: "Menu principal" })
+    .getByRole("button", {
+      name: `Triagem ${triageCount} demandas em triagem`,
+      exact: true,
+    });
+  assert.equal(
+    await triageButton.locator("b > span:not(.visually-hidden)").innerText(),
+    triageCount,
+  );
+  await occurrencesGroup.click();
+  const aggregate = await page.evaluate(async () =>
+    (await fetch("/api/dashboard")).json(),
+  );
+  for (const key of ["orders", "occurrences", "materials"])
+    assert.equal(key in aggregate, false, `/api/dashboard sem ${key}`);
   await page
     .getByLabel("Período do gráfico", { exact: true })
     .selectOption("30");
@@ -296,24 +337,78 @@ try {
     orders: await (await fetch("/api/ordens-servico")).json(),
     rows: await (await fetch("/api/ocorrencias")).json(),
   }));
-  const openOrders = boardData.orders.filter(
-    (o) => !["CONCLUIDA", "CANCELADA"].includes(o.status),
+  // Padrão do quadro: todas as etapas, inclusive Concluídas; Canceladas e Recusadas ficam ocultas até o filtro.
+  const hiddenByDefault = ["CANCELADA", "RECUSADA"];
+  // Concluídas: por padrão, só as dos últimos 30 dias (recorte exibido na coluna).
+  const concluded = boardData.orders.filter((o) => o.status === "CONCLUIDA");
+  const inWindow = (o) =>
+    o.status !== "CONCLUIDA" ||
+    Date.parse(o.completed_at) >= Date.now() - 30 * 86400000;
+  const visibleOrders = boardData.orders.filter(
+    (o) => !hiddenByDefault.includes(o.status) && inWindow(o),
   );
   const linkedIds = new Set(boardData.orders.flatMap((o) => o.occurrence_ids));
   const unassigned = boardData.rows.filter(
-    (o) =>
-      !linkedIds.has(o.id) && !["CONCLUIDA", "CANCELADA"].includes(o.status),
+    (o) => !linkedIds.has(o.id) && !hiddenByDefault.includes(o.status),
+  );
+  assert.ok(
+    boardData.orders.some((o) => o.status === "CONCLUIDA"),
+    "seed deve ter OS concluída para exercitar a coluna Concluídas",
+  );
+  assert.equal(
+    await board.locator('.kanban-column[data-status="CONCLUIDA"]').count(),
+    1,
+  );
+  assert.equal(
+    await board.locator('.kanban-column[data-status="CANCELADA"]').count(),
+    0,
+  );
+  assert.equal(
+    await board.locator('.kanban-column[data-status="RECUSADA"]').count(),
+    0,
   );
   assert.equal(
     await board.locator(".kanban-card").count(),
-    openOrders.length + unassigned.length,
+    visibleOrders.length + unassigned.length,
+  );
+  const doneColumn = board.locator('.kanban-column[data-status="CONCLUIDA"]');
+  assert.equal(
+    await doneColumn
+      .getByLabel("Período de Concluídas", { exact: true })
+      .inputValue(),
+    "30",
+  );
+  const recentDone = concluded.filter(inWindow).length;
+  assert.equal(
+    await doneColumn.locator('.kanban-window small[role="status"]').innerText(),
+    recentDone === concluded.length
+      ? `Todas as ${concluded.length} exibidas`
+      : `${recentDone} de ${concluded.length} · últimos 30 dias`,
+  );
+  await doneColumn
+    .getByLabel("Período de Concluídas", { exact: true })
+    .selectOption("0");
+  await doneColumn
+    .locator('.kanban-window small[role="status"]')
+    .filter({ hasText: `Todas as ${concluded.length} exibidas` })
+    .waitFor();
+  assert.equal(
+    await doneColumn.locator(".kanban-card").count(),
+    concluded.length,
+  );
+  await doneColumn
+    .getByLabel("Período de Concluídas", { exact: true })
+    .selectOption("30");
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".kanban-card").length === n,
+    visibleOrders.length + unassigned.length,
   );
   await page
     .getByLabel("Equipe do quadro", { exact: true })
     .selectOption("team-1");
   assert.equal(
     await board.locator(".kanban-card").count(),
-    openOrders.filter((o) => o.team_id === "team-1").length,
+    visibleOrders.filter((o) => o.team_id === "team-1").length,
   );
   await page
     .getByLabel("Equipe do quadro", { exact: true })
@@ -379,11 +474,26 @@ try {
     .waitFor();
   await page.getByRole("button", { name: "Fechar", exact: true }).click();
   await board.evaluate((el) => (el.scrollLeft = 0));
+  await board
+    .getByRole("region", { name: "Concluídas", exact: true })
+    .waitFor();
+  assert.equal(
+    await board
+      .getByRole("region", { name: "Canceladas", exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await board.getByRole("region", { name: "Recusadas", exact: true }).count(),
+    0,
+  );
   await page
-    .getByLabel("Mostrar encerradas (concluídas, canceladas e recusadas)", {
-      exact: true,
-    })
+    .getByLabel("Mostrar canceladas e recusadas", { exact: true })
     .check();
+  await board
+    .getByRole("region", { name: "Canceladas", exact: true })
+    .waitFor();
+  await board.getByRole("region", { name: "Recusadas", exact: true }).waitFor();
   await board
     .getByRole("region", { name: "Concluídas", exact: true })
     .waitFor();
@@ -415,11 +525,53 @@ try {
         .getImageData(0, 0, c.width, c.height).data;
       return pixels.some((v, i) => i % 4 === 3 && v > 0);
     });
+  // Os pontos do mapa chegam de /api/mapa/ocorrencias de forma assíncrona; espera pela condição, não por tempo fixo.
+  const mapTotal = await page.evaluate(
+    async () =>
+      (await (await fetch("/api/mapa/ocorrencias")).json()).features.length,
+  );
+  const executing = await page.evaluate(
+    async () =>
+      (await (await fetch("/api/mapa/ocorrencias?status=EM_EXECUCAO")).json())
+        .features.length,
+  );
+  assert.ok(
+    executing > 0 && executing < mapTotal,
+    "o filtro de status deve reduzir o resultado do mapa",
+  );
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".map-result").length === n,
+    mapTotal,
+  );
+  await page.waitForFunction(() => {
+    const c = document.querySelector("canvas.territorial-heat-layer");
+    return (
+      !!c &&
+      c
+        .getContext("2d")
+        .getImageData(0, 0, c.width, c.height)
+        .data.some((v, i) => i % 4 === 3 && v > 0)
+    );
+  });
   assert.equal(await hasHeat(), true);
   await page
     .getByLabel("Filtrar status", { exact: true })
     .selectOption("EM_EXECUCAO");
-  assert.equal(await page.locator(".map-result").count(), 1);
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".map-result").length === n,
+    executing,
+  );
+  assert.equal(await page.locator(".map-result").count(), executing);
+  await page.waitForFunction(() => {
+    const c = document.querySelector("canvas.territorial-heat-layer");
+    return (
+      !!c &&
+      c
+        .getContext("2d")
+        .getImageData(0, 0, c.width, c.height)
+        .data.some((v, i) => i % 4 === 3 && v > 0)
+    );
+  });
   assert.equal(await hasHeat(), true);
   await page.locator(".leaflet-control-zoom-in").click();
   await page
@@ -597,6 +749,23 @@ try {
   );
   assert.equal(planning.plans[0].occurrences.length, 2);
   assert.equal(planning.plans[0].orders[0].priority, "Alta");
+  // R4: planos encerrados não vêm em /planejamento; são carregados sob demanda, com o total visível.
+  await page
+    .getByLabel("Situação dos planos", { exact: true })
+    .selectOption("closed");
+  await page
+    .getByText(`${planning.closed_plans} planos encerrados no total`)
+    .waitFor();
+  const closedPage = await page.evaluate(async () =>
+    (await fetch("/api/planejamento/encerrados?limit=20")).json(),
+  );
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".planning-plan").length === n,
+    closedPage.items.length,
+  );
+  await page
+    .getByLabel("Situação dos planos", { exact: true })
+    .selectOption("active");
   await page.screenshot({
     path: "test-results/planning-desktop.png",
     fullPage: true,

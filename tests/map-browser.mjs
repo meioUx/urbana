@@ -1,3 +1,4 @@
+import { launchBrowser } from "./support/browser.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "vite";
 import { chromium } from "./map-browser-fixture.mjs";
@@ -12,7 +13,7 @@ const server = await createServer({
 });
 await server.listen();
 const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-const browser = await chromium.launch({ headless: true, channel: "msedge" });
+const browser = await launchBrowser(chromium);
 try {
   const page = await browser.newPage({
     viewport: { width: 1100, height: 800 },

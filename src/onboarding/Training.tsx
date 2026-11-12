@@ -732,7 +732,11 @@ export default function Training({
               <ShieldCheck size={14} />
               Durante o guia, apenas observamos a interface.
             </p>
-            <div className="onboarding-progress" aria-label="Progresso">
+            <div
+              className="onboarding-progress"
+              role="group"
+              aria-label="Progresso"
+            >
               <span>
                 {Math.min(index + 1, steps.length)} de {steps.length}
               </span>

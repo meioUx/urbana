@@ -8,6 +8,7 @@ import {
   FileText,
   ShoppingCart,
 } from "lucide-react";
+import { TableScroll } from "./shared/ui";
 
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
@@ -146,7 +147,7 @@ export default function InventoryPanel({
           </p>
         </div>
       </div>
-      <div className="table-scroll">
+      <TableScroll label="Saldo de materiais">
         <table>
           <thead>
             <tr>
@@ -192,7 +193,7 @@ export default function InventoryPanel({
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
       {!readOnly && (
         <form
           className="inventory-adjustment"
@@ -362,7 +363,7 @@ export default function InventoryPanel({
             Próxima
           </button>
         </div>
-        <div className="table-scroll">
+        <TableScroll label="Saldo de materiais">
           <table>
             <thead>
               <tr>
@@ -390,7 +391,7 @@ export default function InventoryPanel({
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
         {!data.movements.length && <p>Nenhum movimento registrado.</p>}
       </section>
       <div className="section-heading recent">
