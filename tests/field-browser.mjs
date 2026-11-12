@@ -1,3 +1,4 @@
+import { launchBrowser } from "./support/browser.mjs";
 import { skipInitialOnboarding } from "./onboarding-fixture.mjs";
 import { navigate } from "./navigation.mjs";
 import { chromium } from "./map-browser-fixture.mjs";
@@ -24,7 +25,7 @@ app.get("/{*path}", (req, res) => res.sendFile(resolve("dist/index.html")));
 const server = app.listen(0, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const url = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ headless: true, channel: "msedge" });
+const browser = await launchBrowser(chromium);
 const errors = [];
 const login = async (page, email) => {
   await page.getByLabel("E-mail", { exact: true }).fill(email);
@@ -151,6 +152,7 @@ try {
       await admin.request.post(
         url + `/api/ocorrencias/${occurrence.id}/classificar`,
         {
+          headers: { origin: url },
           data: {
             version: occurrence.version,
             category_id: "category-1",
@@ -164,6 +166,7 @@ try {
     200,
   );
   const result = await admin.request.post(url + "/api/ordens-servico", {
+    headers: { origin: url },
     data: {
       occurrence_ids: [occurrence.id],
       team_id: "team-1",

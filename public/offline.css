@@ -1,0 +1,20 @@
+body {
+  font: 17px system-ui;
+  color: #24523d;
+  background: #f3f6f4;
+  padding: 40px 24px;
+  max-width: 520px;
+  margin: auto;
+}
+a {
+  display: block;
+  background: #146b53;
+  color: white;
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+  text-decoration: none;
+}
+p {
+  line-height: 1.5;
+}
