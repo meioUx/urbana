@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import webpush from "web-push";
 import { canAccessOrder, unpack, now } from "./domain.js";
+import { jsonField } from "./modules/listing/index.js";
 export const pushConfigured = () =>
   !!(
     process.env.VAPID_PUBLIC_KEY &&
@@ -22,20 +23,49 @@ export function registerField(app, db, { route, fail }) {
   app.get(
     "/api/campo",
     route(async (req) => {
+      // Field users only reach orders of their own team; the exact access rule (assignment) is
+      // still applied by canAccessOrder below, so the SQL filter only narrows the candidates.
+      const field = req.user.role === "Equipe de Campo";
+      const teamLinks =
+        "SELECT r.order_id,r.occurrence_id FROM order_occurrences r JOIN orders t ON t.id=r.order_id WHERE t.team_id=?";
+      // Management profiles (Administrador, Gestor...) only receive the open orders (not CONCLUIDA or
+      // CANCELADA) and their occurrences; the field profile keeps every reachable order.
+      const openLinks =
+        "SELECT r.order_id,r.occurrence_id FROM order_occurrences r JOIN orders t ON t.id=r.order_id WHERE t.status NOT IN ('CONCLUIDA','CANCELADA','RECUSADA')";
+      const links = field
+        ? await db.all(teamLinks, [req.user.team_id])
+        : await db.all(openLinks);
+      // Only occurrences linked to a reachable order or created by this user are returned.
+      // ", id DESC" reproduces the (created_at,id) index order used before.
       const occurrences = (
-        await db.all("SELECT * FROM occurrences ORDER BY created_at DESC")
+        await db.all(
+          `SELECT * FROM occurrences WHERE id IN (${(field ? teamLinks : openLinks).replace("r.order_id,r.occurrence_id", "r.occurrence_id")}) OR ${jsonField(db, "creator_id")}=? ORDER BY created_at DESC,id DESC`,
+          field ? [req.user.team_id, req.user.id] : [req.user.id],
+        )
       ).map(unpack);
-      const links = await db.all("SELECT * FROM order_occurrences");
+      const position = new Map(occurrences.map((c, i) => [c.id, i]));
+      const occurrenceIdsByOrder = new Map();
+      for (const l of links) {
+        if (!occurrenceIdsByOrder.has(l.order_id))
+          occurrenceIdsByOrder.set(l.order_id, new Set());
+        occurrenceIdsByOrder.get(l.order_id).add(l.occurrence_id);
+      }
       const orders = (
-        await db.all("SELECT * FROM orders ORDER BY updated_at DESC")
+        await db.all(
+          field
+            ? "SELECT * FROM orders ORDER BY updated_at DESC"
+            : "SELECT * FROM orders WHERE status NOT IN ('CONCLUIDA','CANCELADA','RECUSADA') ORDER BY updated_at DESC",
+        )
       )
         .map(unpack)
         .filter((o) => canAccessOrder(req.user, o))
         .map((o) => ({
           ...o,
-          occurrences: occurrences.filter((c) =>
-            links.some((l) => l.order_id === o.id && l.occurrence_id === c.id),
-          ),
+          // Same order as the occurrence list (created_at DESC), without rescanning it per order.
+          occurrences: [...(occurrenceIdsByOrder.get(o.id) || [])]
+            .filter((id) => position.has(id))
+            .sort((a, b) => position.get(a) - position.get(b))
+            .map((id) => occurrences[position.get(id)]),
         }));
       return {
         orders,
@@ -111,10 +141,15 @@ export function registerField(app, db, { route, fail }) {
     }, true),
   );
 }
+// A job being delivered is leased: its next_attempt_at is pushed this far ahead, so other instances
+// skip it. If the instance dies mid-delivery the lease expires and the job is retried (at least once).
+export const PUSH_CLAIM_LEASE_MS = 5 * 60 * 1000;
+const affectedRows = (result) => Number(result.rowCount ?? result.changes ?? 0);
 export async function deliverNotifications(
   db,
   enqueue,
   send = webpush.sendNotification.bind(webpush),
+  { leaseMs = PUSH_CLAIM_LEASE_MS } = {},
 ) {
   if (!pushConfigured()) return;
   const jobs = await enqueue(() =>
@@ -123,7 +158,23 @@ export async function deliverNotifications(
       [now()],
     ),
   );
-  for (const job of jobs) {
+  for (const candidate of jobs) {
+    // Atomic claim: a single conditional UPDATE that only one instance can win. attempts is the
+    // compare-and-swap token (it only grows), so a second instance holding the same snapshot
+    // matches zero rows on both SQLite and PostgreSQL (READ COMMITTED re-checks the WHERE).
+    const claimed = await enqueue(() =>
+      db.run(
+        "UPDATE push_jobs SET attempts=attempts+1,next_attempt_at=? WHERE id=? AND status='pending' AND attempts=? AND next_attempt_at<=?",
+        [
+          new Date(Date.now() + leaseMs).toISOString(),
+          candidate.id,
+          candidate.attempts,
+          now(),
+        ],
+      ),
+    );
+    if (affectedRows(claimed) !== 1) continue;
+    const job = candidate;
     const context = await enqueue(async () => ({
       user: await db.get("SELECT id,role,team_id FROM users WHERE id=?", [
         job.user_id,
@@ -176,11 +227,14 @@ export async function deliverNotifications(
     }
     await enqueue(() =>
       db.run(
-        "UPDATE push_jobs SET status=?,attempts=attempts+1,next_attempt_at=? WHERE id=?",
+        // attempts was already incremented by the claim; the guard keeps a slow instance whose lease
+        // expired (job reclaimed elsewhere) from overwriting the newer owner's result.
+        "UPDATE push_jobs SET status=?,next_attempt_at=? WHERE id=? AND attempts=?",
         [
           failed ? (job.attempts >= 4 ? "failed" : "pending") : "delivered",
           new Date(Date.now() + 60000 * 2 ** job.attempts).toISOString(),
           job.id,
+          job.attempts + 1,
         ],
       ),
     );

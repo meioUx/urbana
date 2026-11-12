@@ -1,3 +1,4 @@
+import "./support/same-origin-fetch.js";
 import { deliverNotifications } from "../server/field.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -620,12 +621,22 @@ test("street action plans: priority, permissions, membership, scheduling and per
     (p) => p.id === plan.data.id,
   );
   assert.equal(current.completed, 1);
+  // Closed plans leave /planejamento (only counted there) and are listed by /planejamento/encerrados.
+  const closedBefore = (await json("/planejamento")).data.closed_plans;
   await db.run("UPDATE occurrences SET status='CANCELADA' WHERE id=?", [b.id]);
-  current = (await json("/planejamento")).data.plans.find(
+  const open = (await json("/planejamento")).data;
+  assert.ok(!open.plans.some((p) => p.id === plan.data.id));
+  assert.equal(open.closed_plans, closedBefore + 1);
+  current = (await json("/planejamento/encerrados")).data.items.find(
     (p) => p.id === plan.data.id,
   );
   assert.equal(current.status, "Encerrado com cancelamentos");
   assert.equal(current.cancelled, 1);
+  assert.equal((await json("/planejamento/encerrados?cursor=abc")).status, 400);
+  assert.equal(
+    (await json("/planejamento/encerrados", "GET", undefined, field)).status,
+    403,
+  );
   assert.ok(
     !(await json("/planejamento")).data.groups.some((g) =>
       g.occurrences.some((o) => o.id === a.id || o.id === b.id),
@@ -1004,7 +1015,7 @@ test("push delivery retries, expires subscriptions and checks current assignment
 });
 
 test("invoice confirmation updates stock, stage cost and controlled OS consumption", async () => {
-  const occurrence = await createTriaged(-33.1);
+  const occurrence = await createTriaged(-38.73);
   const scheduled = await schedule(occurrence);
   const id = scheduled.data.id;
   const invoiceId = crypto.randomUUID();
@@ -1743,4 +1754,62 @@ test("territorial summary uses linked OS data and authenticated evidence without
   assert.equal(result.attendance_at, order.finished_at);
   assert.equal(result.completed_at, order.completed_at);
   assert.ok(result.after);
+});
+
+test("evidence upload reports missing location before validating coordinates (both upload routes)", async () => {
+  const send = async (path, cookie, fields) => {
+    const f = new FormData();
+    f.append("file", new Blob([photo], { type: "image/png" }), "photo.png");
+    f.append(
+      "stage",
+      path.startsWith("/ordens-servico/") ? "antes" : "registro",
+    );
+    for (const [k, v] of Object.entries(fields)) f.append(k, v);
+    const r = await fetch(base + path + "/anexos", {
+      method: "POST",
+      headers: { cookie },
+      body: f,
+    });
+    return { status: r.status, data: await r.json() };
+  };
+  const oc = await createTriaged(-12.345);
+  const order = (await schedule(oc)).data;
+  for (const [path, cookie] of [
+    [`/ocorrencias/${oc.id}`, admin],
+    [`/ordens-servico/${order.id}`, executor],
+  ]) {
+    for (const fields of [
+      {},
+      { lat: "-12.345" },
+      { lng: "-48.6" },
+      { lat: "", lng: "-48.6" },
+      { lat: "-12.345", lng: "  " },
+    ]) {
+      const r = await send(path, cookie, fields);
+      assert.equal(r.status, 400, `${path} ${JSON.stringify(fields)}`);
+      assert.equal(
+        r.data.error,
+        "Informe a localização da evidência.",
+        `${path} ${JSON.stringify(fields)}`,
+      );
+    }
+    for (const fields of [
+      { lat: "abc", lng: "-48.6" },
+      { lat: "-12.345", lng: "200" },
+      { lat: "91", lng: "-48.6" },
+    ]) {
+      const r = await send(path, cookie, fields);
+      assert.equal(r.status, 400, `${path} ${JSON.stringify(fields)}`);
+      assert.equal(
+        r.data.error,
+        "Revise os campos informados.",
+        `${path} ${JSON.stringify(fields)}`,
+      );
+    }
+    assert.equal(
+      (await send(path, cookie, { lat: "-12.345", lng: "-48.6" })).status,
+      200,
+      path,
+    );
+  }
 });

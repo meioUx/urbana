@@ -2,6 +2,7 @@ import multer from "multer";
 import { randomUUID } from "node:crypto";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { z } from "zod";
+import { malwareResponse, scanUpload } from "./modules/files/upload-scan.js";
 
 export const inventoryStages = [
   "registro",
@@ -154,8 +155,18 @@ const itemSchema = z.object({
 });
 
 export function registerInvoices(app, db, helpers) {
-  const { route, allow, audit, fail, accessOrder, now, storage, uploadGuard } =
-    helpers;
+  const {
+    route,
+    allow,
+    audit,
+    fail,
+    accessOrder,
+    now,
+    storage,
+    uploadGuard,
+    scanner,
+    logger,
+  } = helpers;
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 15 * 1024 * 1024, files: 1 },
@@ -180,11 +191,33 @@ export function registerInvoices(app, db, helpers) {
     allow("schedule"),
     uploadGuard,
     upload.single("file"),
-    route(async (req) => {
+    route(async (req, res) => {
       if (!req.file) fail(400, "Selecione uma nota fiscal em PDF.");
       const order = await accessOrder(req, req.params.id);
       if (req.file.buffer.subarray(0, 5).toString() !== "%PDF-") {
         fail(400, "O arquivo enviado não é um PDF válido.");
+      }
+      // Optional antimalware scan: after the cheap checks, before parsing the PDF or storing anything.
+      const scan = await scanUpload({
+        scanner,
+        logger,
+        req,
+        bytes: req.file.buffer,
+        originalName: req.file.originalname,
+      });
+      if (scan.infected) {
+        await audit(
+          req,
+          "order",
+          order.id,
+          "Nota fiscal recusada pela verificação de segurança",
+          null,
+          {
+            original_name: req.file.originalname.slice(0, 200),
+            request_id: req.id,
+          },
+        );
+        return malwareResponse(res);
       }
       let rawText;
       try {

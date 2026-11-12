@@ -1,4 +1,10 @@
-const tables = new Set(["occurrences", "orders", "action_plans"]);
+const tables = new Set([
+  "occurrences",
+  "orders",
+  "action_plans",
+  "interventions",
+  "projects",
+]);
 export function versionConflict(currentVersion) {
   return Object.assign(new Error("Registro alterado por outro usuário."), {
     status: 409,

@@ -46,6 +46,9 @@ export function registerInventory(app, db, helpers) {
         "SELECT material_id,SUM(quantity) AS quantity FROM consumption WHERE created_at>=? GROUP BY material_id",
         [cutoff],
       );
+      const consumedByMaterial = new Map(
+        recentConsumption.map((row) => [row.material_id, row]),
+      );
       return {
         materials: materials.map((material) => {
           const balance = byMaterial.get(material.id);
@@ -55,8 +58,7 @@ export function registerInventory(app, db, helpers) {
             ? Number(balance.incoming_value) / incomingQuantity
             : Number(material.unit_cost || 0);
           const consumed90 = Number(
-            recentConsumption.find((row) => row.material_id === material.id)
-              ?.quantity || 0,
+            consumedByMaterial.get(material.id)?.quantity || 0,
           );
           const monthlyAverage = consumed90 / 3;
           const minimumStock = Number(material.minimum_stock || 0);

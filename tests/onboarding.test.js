@@ -1,3 +1,4 @@
+import "./support/same-origin-fetch.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -281,9 +282,10 @@ test("individual tutorial does not complete the main tour and every profile save
     (await request("/onboarding", "GET", undefined, null)).status,
     401,
   );
+  // No route edits another profile's onboarding: unknown /api path (404, was 403 by module deny-by-default).
   assert.equal(
     (await request("/onboarding/admin", "PATCH", event("completed"))).status,
-    403,
+    404,
   );
 });
 test("server rejects unavailable modules, unknown steps and versions without changing authorization", async () => {

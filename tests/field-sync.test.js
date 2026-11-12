@@ -1,3 +1,4 @@
+import "./support/same-origin-fetch.js";
 // Field app sync contract: request_id replay, captured_at, structured error codes and duplicate links.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -471,6 +472,89 @@ test("invalid captured_at is rejected with INVALID_CAPTURED_AT and changes nothi
     ).status,
     200,
   );
+});
+
+test("equipment accepts request_id replay and captured_at like material", async () => {
+  const path = await orderFor(-26.5);
+  const equipmentUrl = `${path}/equipamento`;
+  const key = randomUUID();
+  // Not in execution: rejected, and the key is not consumed.
+  assert.equal(
+    (
+      await call(
+        equipmentUrl,
+        "POST",
+        { equipment_id: "equipment-1", request_id: key },
+        opA,
+      )
+    ).status,
+    409,
+  );
+  assert.equal((await attach(path, "antes", opA)).status, 200);
+  assert.equal(
+    (await act(path, "iniciar", { lat: -26.5, lng: -48.6 }, opA)).status,
+    200,
+  );
+  // Legacy payload (only equipment_id) keeps working.
+  assert.deepEqual(
+    (await call(equipmentUrl, "POST", { equipment_id: "equipment-2" }, opA))
+      .data,
+    { ok: true },
+  );
+  // Invalid captured_at is rejected and changes nothing.
+  const audits = () =>
+    count(
+      "SELECT COUNT(*) AS n FROM audit_logs WHERE entity_id=? AND event=?",
+      [path.split("/").pop(), "Equipamento registrado"],
+    );
+  const before = await audits();
+  const invalid = await call(
+    equipmentUrl,
+    "POST",
+    { equipment_id: "equipment-1", request_id: key, captured_at: "amanhã" },
+    opA,
+  );
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.data.code, "INVALID_CAPTURED_AT");
+  assert.equal(await audits(), before);
+  // First send registers once and keeps the captured time in the audit trail.
+  const capturedAt = iso(-60 * 1000);
+  const first = await call(
+    equipmentUrl,
+    "POST",
+    { equipment_id: "equipment-1", request_id: key, captured_at: capturedAt },
+    opA,
+  );
+  assert.deepEqual(first.data, { ok: true });
+  assert.equal(await audits(), before + 1);
+  const logged = await db.get(
+    "SELECT after_value FROM audit_logs WHERE entity_id=? AND event=? ORDER BY created_at DESC LIMIT 1",
+    [path.split("/").pop(), "Equipamento registrado"],
+  );
+  assert.equal(JSON.parse(logged.after_value).captured_at, capturedAt);
+  // Replay: no new audit entry, no new row, even after the order left execution.
+  const again = await call(
+    equipmentUrl,
+    "POST",
+    { equipment_id: "equipment-1", request_id: key },
+    opA,
+  );
+  assert.deepEqual(again.data, { ok: true, replayed: true });
+  assert.equal(await audits(), before + 1);
+  assert.equal(
+    (await call(path, "GET", undefined, opA)).data.equipment.length,
+    2,
+  );
+  // The same key on another order is refused.
+  const other = await orderFor(-26.6);
+  const reuse = await call(
+    `${other}/equipamento`,
+    "POST",
+    { equipment_id: "equipment-1", request_id: key },
+    opA,
+  );
+  assert.equal(reuse.status, 409);
+  assert.equal(reuse.data.code, "REQUEST_ID_REUSED");
 });
 
 test("structured codes keep the same status and message", async () => {

@@ -50,9 +50,25 @@ export function registerSectorControl(app, db, { route, allow }) {
         ? String(req.query.month)
         : new Date().toISOString().slice(0, 7);
       const sectorId = String(req.query.sector_id || "");
-      const orders = (await db.all("SELECT * FROM orders ORDER BY created_at"))
-        .map(unpack)
-        .filter((order) => !sectorId || order.sector_id === sectorId);
+      // The entry date of an order is the creation of its oldest occurrence (or of the order itself);
+      // only orders whose entry date falls in the month are read, with all their occurrences in one
+      // query instead of one query per order.
+      const filter = `${sectorId ? "o.sector_id=? AND " : ""}COALESCE((SELECT NULLIF(MIN(c.created_at),'') FROM order_occurrences r JOIN occurrences c ON c.id=r.occurrence_id WHERE r.order_id=o.id),o.created_at) LIKE ?`;
+      const args = [...(sectorId ? [sectorId] : []), `${month}%`];
+      const orders = (
+        await db.all(
+          `SELECT o.* FROM orders o WHERE ${filter} ORDER BY o.created_at,o.id`,
+          args,
+        )
+      ).map(unpack);
+      const linked = new Map();
+      for (const { link_order_id, ...row } of await db.all(
+        `SELECT c.*,r.order_id AS link_order_id FROM order_occurrences r JOIN occurrences c ON c.id=r.occurrence_id WHERE r.order_id IN (SELECT o.id FROM orders o WHERE ${filter}) ORDER BY r.order_id,c.created_at,c.id`,
+        args,
+      )) {
+        if (!linked.has(link_order_id)) linked.set(link_order_id, []);
+        linked.get(link_order_id).push(unpack(row));
+      }
       const categories = new Map(
         (await db.all("SELECT * FROM catalogs WHERE kind='categorias'"))
           .map(unpack)
@@ -60,12 +76,7 @@ export function registerSectorControl(app, db, { route, allow }) {
       );
       const rows = [];
       for (const order of orders) {
-        const occurrences = (
-          await db.all(
-            "SELECT c.* FROM occurrences c JOIN order_occurrences r ON r.occurrence_id=c.id WHERE r.order_id=? ORDER BY c.created_at",
-            [order.id],
-          )
-        ).map(unpack);
+        const occurrences = linked.get(order.id) || [];
         const primary = occurrences[0] || {};
         const entryDate = primary.created_at || order.created_at;
         if (entryDate.slice(0, 7) !== month) continue;
