@@ -34,14 +34,14 @@ As tabelas são criadas idempotentemente pelo esquema base; a migration 9 regist
 
 O fluxo geral é Demanda → Triagem → Programação → Execução → Validação → Conclusão. A apresentação indica onde o perfil participa; Administrador prepara a estrutura e Consulta acompanha as informações.
 
-| Perfil | Processo ensinado | Etapas principais completas |
-| --- | --- | --- |
-| Administrador | Configurar → Estruturar → Criar usuários → Liberar acessos → Acompanhar | Configuração, estrutura/catálogos, equipes, usuários, módulos, auditoria (6) |
-| Gestor | Priorizar → Programar → Distribuir → Acompanhar → Resolver exceções | Demandas prontas, mapa, planejamento opcional, programação/distribuição, acompanhamento, devoluções (até 6) |
-| Triagem | Receber → Analisar → Classificar → Encaminhar | Fila, informações da demanda, classificação, recusa justificada, passagem à gestão, mapa (6) |
-| Equipe de Campo | Receber → Assumir → Chegar → Executar → Registrar → Enviar | Minhas tarefas, assumir, chegada/foto antes, execução/materiais, relato/foto depois/envio, impossibilidade/devolução (6) |
-| Fiscalização | Receber → Conferir informações → Conferir evidências → Validar ou reabrir | Fila, detalhe, evidências, validação, reabertura com motivo, mapa (6) |
-| Consulta | Pesquisar → Localizar → Consultar → Acompanhar | Visão geral, filtros, ocorrência, OS, mapa (até 5), sem ações de edição |
+| Perfil          | Processo ensinado                                                         | Etapas principais completas                                                                                              |
+| --------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Administrador   | Configurar → Estruturar → Criar usuários → Liberar acessos → Acompanhar   | Configuração, estrutura/catálogos, equipes, usuários, módulos, auditoria (6)                                             |
+| Gestor          | Priorizar → Programar → Distribuir → Acompanhar → Resolver exceções       | Demandas prontas, mapa, planejamento opcional, programação/distribuição, acompanhamento, devoluções (até 6)              |
+| Triagem         | Receber → Analisar → Classificar → Encaminhar                             | Fila, informações da demanda, classificação, recusa justificada, passagem à gestão, mapa (6)                             |
+| Equipe de Campo | Receber → Assumir → Chegar → Executar → Registrar → Enviar                | Minhas tarefas, assumir, chegada/foto antes, execução/materiais, relato/foto depois/envio, impossibilidade/devolução (6) |
+| Fiscalização    | Receber → Conferir informações → Conferir evidências → Validar ou reabrir | Fila, detalhe, evidências, validação, reabertura com motivo, mapa (6)                                                    |
+| Consulta        | Pesquisar → Localizar → Consultar → Acompanhar                            | Visão geral, filtros, ocorrência, OS, mapa (até 5), sem ações de edição                                                  |
 
 Etapas agrupam tarefas relacionadas para manter o fluxo curto. Registrar e Distribuir continuam na sequência visual mesmo quando agrupados com Enviar/Programar. Cada etapa apresenta o que conferir/fazer e o que acontece depois; a conclusão lista somente as etapas efetivamente apresentadas.
 
@@ -83,6 +83,10 @@ Alterados para onboarding:
 - `README.md`, `docs/API.md`, `docs/URBANA-CONTEXTO-MESTRE.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
 
 Alterações anteriores de autorização já presentes no workspace foram preservadas.
+
+Nota de 2026-11-12 (segunda rodada): o conteúdo do treinamento continua na versão **1** e **não ensina** o módulo Obras e intervenções nem o portal do cidadão; os seis perfis e seus tutoriais não mudaram. A auditoria automatizada de acessibilidade da R7 (`npm run test:a11y`, ver [README](../README.md#testes)) abre a Ajuda com um passo do treinamento aberto e verifica o teclado desse diálogo, mas não substitui a avaliação do tutorial com leitor de tela ou usuários reais.
+
+Nota de 2026-11-12: os caminhos acima descrevem a entrega original. Depois da divisão de `server/app.js` e `src/main.tsx`, o estado de onboarding no bootstrap está em `server/routes/bootstrap.js` (que chama `onboardingState` de `server/onboarding.js`, onde ficam os endpoints `/api/onboarding`), a entrada global em `src/main.tsx` com `src/modules/workspace/useOnboardingNavigation.ts`, e as migrations em `server/migrations/` (a 9 é `009-marker.js`). As contagens de testes abaixo também são da entrega original; a contagem atual está no [Changelog](CHANGELOG.md).
 
 ## Testes e verificação
 

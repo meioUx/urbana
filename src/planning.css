@@ -229,15 +229,15 @@
 .planning-workspace .priority-Emergencial,
 .planning-dialog .priority-Emergencial {
   background: #fcecec;
-  color: #b65e5e;
+  color: var(--ink-red);
 }
 .planning-workspace .priority-Alta {
   background: #fff0e5;
-  color: #a96c38;
+  color: var(--ink-orange);
 }
 .planning-workspace .priority-Média {
   background: #fbf5df;
-  color: #988044;
+  color: var(--ink-orange);
 }
 .planning-candidate-facts {
   display: flex;
@@ -253,7 +253,7 @@
   font-weight: 600;
 }
 .planning-candidate-facts .late {
-  color: #ae6a42;
+  color: var(--ink-orange);
 }
 .planning-candidate-reason {
   margin: 10px 0 0;
@@ -288,7 +288,7 @@
 .planning-analysis-heading p {
   font-size: 12px;
   line-height: 1.6;
-  color: #88988d;
+  color: var(--ink-muted);
   margin: 0 0 10px;
 }
 .planning-analysis-reasons {
@@ -304,14 +304,14 @@
 .planning-analysis-reasons ul {
   margin: 0;
   padding-left: 16px;
-  color: #6b8272;
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 1.8;
 }
 .planning-analysis-reasons small {
   display: block;
   font-size: 12px;
-  color: #8a998f;
+  color: var(--ink-faint);
   margin-top: 7px;
   line-height: 1.5;
 }
@@ -319,10 +319,10 @@
   display: grid;
   gap: 5px;
   font-size: 12px;
-  color: #84958a;
+  color: var(--ink-muted);
 }
 .planning-readiness strong {
-  color: #3e7f5b;
+  color: var(--ink-green);
   font-weight: 600;
 }
 .planning-demand-details {
@@ -332,7 +332,7 @@
 .planning-demand-details summary,
 .planning-plan summary {
   font-size: 12px;
-  color: #64816e;
+  color: var(--ink-muted);
   cursor: pointer;
 }
 .planning-demand-link {
@@ -359,11 +359,12 @@
 }
 .planning-demand-link small {
   font-size: 12px;
-  color: #8b9b90;
+  color: var(--ink-faint);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
 .planning-map-toggle {
+  min-height: 24px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -371,7 +372,7 @@
   background: none;
   padding: 0;
   font-size: 12px;
-  color: #578369;
+  color: var(--ink-green);
   cursor: pointer;
 }
 .planning-analysis .map-wrap {
@@ -398,7 +399,7 @@
 .planning-capacity > p {
   margin: 0;
   font-size: 12px;
-  color: #8a9a8e;
+  color: var(--ink-faint);
   line-height: 1.6;
 }
 .planning-team-options {
@@ -430,7 +431,7 @@
 }
 .planning-team-options small {
   font-size: 12px;
-  color: #8e9d91;
+  color: var(--ink-faint);
 }
 .planning-select-team {
   display: flex;
@@ -439,7 +440,7 @@
   border: 0;
   border-radius: 5px;
   background: #eef5f0;
-  color: #4b8860;
+  color: var(--ink-green);
   min-width: 30px;
   min-height: 30px;
   cursor: pointer;
@@ -450,7 +451,7 @@
 }
 .planning-capacity-footnote,
 .planning-analysis-footnote {
-  color: #9aaa9d;
+  color: var(--ink-faint);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -496,7 +497,7 @@
   overflow-wrap: anywhere;
 }
 .planning-compare-grid p {
-  color: #86978b;
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -512,7 +513,7 @@
   gap: 8px;
 }
 .planning-compare-grid dt {
-  color: #8b9b90;
+  color: var(--ink-faint);
 }
 .planning-compare-grid dd {
   margin: 0;
@@ -550,13 +551,13 @@
   font-size: 12px;
 }
 .planning-plan-heading > strong {
-  color: #92a297;
+  color: var(--ink-faint);
 }
 .planning-plan-heading > span {
   background: #f1f6f2;
   padding: 4px 7px;
   border-radius: 5px;
-  color: #6e8e79;
+  color: var(--ink-muted);
 }
 .planning-plan h3 {
   font-size: 17px;
@@ -565,11 +566,11 @@
 }
 .planning-plan-location {
   font-size: 12px;
-  color: #8b9d90;
+  color: var(--ink-faint);
   margin: 0;
 }
 .planning-plan-objective {
-  color: #708778;
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 1.7;
   margin: 14px 0;
@@ -580,7 +581,7 @@
   flex-wrap: wrap;
   gap: 10px 17px;
   font-size: 12px;
-  color: #7d9284;
+  color: var(--ink-muted);
   margin-bottom: 14px;
 }
 .planning-plan-metadata span {
@@ -595,7 +596,7 @@
   accent-color: #478865;
 }
 .planning-progress-caption {
-  color: #8a9e90;
+  color: var(--ink-faint);
   font-size: 12px;
   margin: 6px 0 13px;
 }
@@ -622,18 +623,18 @@
   min-width: 0;
 }
 .planning-plan-orders strong {
-  color: #5f7f6b;
+  color: var(--ink-muted);
   font-size: 12px;
 }
 .planning-plan-orders small {
-  color: #91a095;
+  color: var(--ink-faint);
   font-size: 12px;
 }
 .planning-plan-orders button > span:nth-child(2) {
   margin-left: auto;
   white-space: nowrap;
   font-size: 12px;
-  color: #869b8d;
+  color: var(--ink-faint);
 }
 .planning-plan-actions {
   display: flex;
@@ -650,11 +651,11 @@
   gap: 7px;
   font-size: 12px;
   line-height: 1.6;
-  color: #748c7c;
+  color: var(--ink-muted);
   margin: 6px 0;
 }
 .planning-note.warning {
-  color: #a97951;
+  color: var(--ink-orange);
 }
 .planning-note svg {
   flex-shrink: 0;
@@ -669,7 +670,7 @@
   background: #eff7f1;
   border-radius: 8px;
   font-size: 12px;
-  color: #548364;
+  color: var(--ink-green);
   margin: 0;
 }
 .planning-success .icon {
@@ -690,7 +691,7 @@
 }
 .planning-empty p {
   font-size: 12px;
-  color: #83988a;
+  color: var(--ink-muted);
   line-height: 1.6;
   margin: 0;
 }
@@ -716,7 +717,7 @@
   margin-bottom: 20px;
 }
 .planning-dialog header small {
-  color: #92a295;
+  color: var(--ink-faint);
   font-size: 12px;
   letter-spacing: 0.08em;
 }
@@ -726,7 +727,7 @@
 }
 .planning-dialog header p {
   font-size: 12px;
-  color: #80958a;
+  color: var(--ink-muted);
   margin: 0;
 }
 .planning-dialog form {
@@ -754,7 +755,7 @@
   flex-wrap: wrap;
   gap: 10px 22px;
   font-size: 12px;
-  color: #8a9b8f;
+  color: var(--ink-faint);
   padding: 11px;
   background: #f4f8f5;
   border-radius: 7px;
@@ -765,7 +766,7 @@
 .planning-scope summary {
   cursor: pointer;
   font-size: 12px;
-  color: #63846d;
+  color: var(--ink-muted);
 }
 .planning-scope-list {
   display: grid;
@@ -792,7 +793,7 @@
   flex: 1;
 }
 .planning-scope-list small {
-  color: #8e9e92;
+  color: var(--ink-faint);
   line-height: 1.5;
 }
 .planning-scope-list .text-button {
@@ -819,7 +820,7 @@
   font-size: 12px;
 }
 .planning-issue-choice small {
-  color: #8a9e91;
+  color: var(--ink-faint);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -830,10 +831,10 @@
   display: grid;
   gap: 6px;
   font-size: 12px;
-  color: #799481;
+  color: var(--ink-muted);
 }
 .planning-load-note p {
-  color: #a57f56;
+  color: var(--ink-orange);
   line-height: 1.6;
   margin: 0;
 }

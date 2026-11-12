@@ -1,4 +1,12 @@
-import { mkdir, readFile, writeFile, unlink, access } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  writeFile,
+  unlink,
+  access,
+  readdir,
+  stat,
+} from "node:fs/promises";
 import { resolve, dirname, sep } from "node:path";
 const validateKey = (key) => {
   if (
@@ -34,6 +42,34 @@ export class LocalFileStorage {
     } catch (e) {
       if (e.code !== "ENOENT") throw e;
     }
+  }
+  // Lists stored files as { key, size, modifiedAt (ms) }; used by the orphan sweep. Entries that do
+  // not look like storage keys (temporary files, subdirectories) are skipped, never reported.
+  async list() {
+    const files = [];
+    for (const folder of ["uploads", "invoices"]) {
+      let names;
+      try {
+        names = await readdir(resolve(this.root, folder), {
+          withFileTypes: true,
+        });
+      } catch (e) {
+        if (e.code === "ENOENT") continue;
+        throw e;
+      }
+      for (const entry of names) {
+        if (!entry.isFile()) continue;
+        const key = `${folder}/${entry.name}`;
+        try {
+          validateKey(key);
+        } catch {
+          continue;
+        }
+        const info = await stat(this.path(key));
+        files.push({ key, size: info.size, modifiedAt: info.mtimeMs });
+      }
+    }
+    return files;
   }
   async exists(key) {
     try {

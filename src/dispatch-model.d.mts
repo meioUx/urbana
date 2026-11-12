@@ -1,1 +1,15 @@
-export function summarizeTeam(orders: any[], teamId: string, scheduledAt: string, now?: number): { open: number; calls: number; running: number; scheduled: number; review: number; returned: number; onDate: number; overdue: number };
+export function summarizeTeam(
+  orders: any[],
+  teamId: string,
+  scheduledAt: string,
+  now?: number,
+): {
+  open: number;
+  calls: number;
+  running: number;
+  scheduled: number;
+  review: number;
+  returned: number;
+  onDate: number;
+  overdue: number;
+};

@@ -1,0 +1,9 @@
+dist
+node_modules
+data
+test-results
+tmp
+coverage
+package-lock.json
+# Registro mantido à mão (tarefas do projeto); não reformatar.
+docs/TAREFAS-MELHORIAS.md

@@ -1,0 +1,333 @@
+.works-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+}
+.works-page > *,
+.works-detail > * {
+  min-width: 0;
+}
+.works-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.works-tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid #dce6df;
+}
+.works-tabs button {
+  padding: 10px 0 13px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: #52665a;
+  cursor: pointer;
+  min-height: 44px;
+}
+.works-tabs button[aria-selected="true"] {
+  color: #197455;
+  border-bottom-color: #197455;
+}
+.works-tabs button:focus-visible,
+.works-page tr[tabindex]:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 2px;
+}
+.works-intro {
+  font-size: 12px;
+  margin: 0 0 12px;
+}
+.works-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+.works-detail h3 {
+  font-size: 14px;
+  margin: 12px 0 4px;
+  color: #3b5243;
+}
+.works-detail-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.works-detail-top .text-button,
+.linked-list .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
+.works-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.works-detail-header h2 {
+  font-size: 22px;
+  margin: 2px 0 8px;
+}
+.works-detail-header h2:focus {
+  outline: none;
+}
+.works-detail-header h2:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 3px;
+}
+.works-detail-badges {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.works-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.button.danger {
+  color: #a74b43;
+  border-color: #f1d5d0;
+}
+.works-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px 22px;
+  margin: 0;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.works-facts .wide {
+  grid-column: 1/-1;
+}
+.works-facts dt {
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+.works-facts dd {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.works-map .map-wrap,
+.geometry-map .map-wrap {
+  height: 320px;
+  margin: 0;
+}
+.modal .geometry-map .map-wrap {
+  height: 300px;
+}
+.geometry-status {
+  font-size: 12px;
+  color: #3b5243;
+  margin: 8px 0;
+}
+.geometry-coordinates pre {
+  max-height: 180px;
+  overflow: auto;
+  font-size: 11px;
+  background: #f6f8f7;
+  padding: 10px;
+  border-radius: 5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.geometry-editor,
+.services-editor {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 8px 0 16px;
+  min-width: 0;
+}
+.geometry-editor legend,
+.services-editor legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3b5243;
+  padding: 0 6px;
+}
+.geometry-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-bottom: 8px;
+}
+.geometry-kinds label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  min-height: 32px;
+}
+.geometry-kinds input {
+  accent-color: var(--green);
+}
+.geometry-help {
+  font-size: 11px;
+  margin: 0 0 8px;
+}
+.geometry-actions,
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.geometry-manual {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+.geometry-manual .field {
+  margin: 0;
+}
+.geometry-points,
+.works-services,
+.works-history {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+}
+.geometry-points li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+}
+.works-history li {
+  margin-bottom: 6px;
+}
+.works-history small {
+  display: block;
+  color: var(--ink-faint);
+}
+.service-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 90px auto;
+  gap: 10px;
+  align-items: end;
+}
+.service-row .field {
+  margin-bottom: 8px;
+}
+.notice.warning {
+  background: #fffaed;
+  border-color: #f0deac;
+  color: #6f5512;
+  align-items: flex-start;
+}
+.notice.warning p {
+  margin: 4px 0;
+}
+.conflict-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.conflict-list > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #f0deac;
+  border-radius: 5px;
+  font-size: 12px;
+  color: #3b4a40;
+}
+.conflict-list small {
+  display: block;
+  color: #7a6a3c;
+  margin-top: 3px;
+}
+.conflict-review {
+  margin: 6px 0 0;
+  color: #26614c;
+}
+.review-form {
+  min-width: min(320px, 100%);
+}
+.works-links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.linked-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 6px;
+}
+.linked-list li,
+.link-results li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  font-size: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid #edf1ed;
+}
+.linked-list li > span,
+.link-results li > span {
+  flex: 1;
+  min-width: 140px;
+}
+.visually-muted {
+  display: block;
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+.link-results {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+}
+.conflict-check {
+  min-height: 20px;
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .works-links {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 680px) {
+  .geometry-manual,
+  .service-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .geometry-manual > .button,
+  .service-row > .text-button {
+    grid-column: 1/-1;
+  }
+  .works-actions .button {
+    flex: 1 1 auto;
+  }
+  .works-map .map-wrap,
+  .geometry-map .map-wrap {
+    height: 260px;
+  }
+  .conflict-list > li {
+    flex-direction: column;
+  }
+}

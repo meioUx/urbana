@@ -7,6 +7,8 @@
     "dev": "node server/index.js",
     "build": "tsc --noEmit && vite build",
     "start": "node server/index.js --production",
+    "backup": "node scripts/backup.mjs",
+    "uploads:cleanup": "node scripts/cleanup-orphan-uploads.mjs",
     "test": "node --test tests/*.test.js",
     "test:ui": "node tests/browser.mjs",
     "push:keys": "web-push generate-vapid-keys --json",
@@ -14,7 +16,17 @@
     "test:kanban": "node tests/kanban-browser.mjs",
     "test:map": "node tests/map-browser.mjs && node tests/territorial-browser.mjs",
     "test:authorization": "node tests/authorization-browser.mjs",
-    "test:onboarding": "node tests/onboarding-browser.mjs"
+    "test:onboarding": "node tests/onboarding-browser.mjs",
+    "test:sector": "node tests/sector-browser.mjs",
+    "test:p0": "node tests/p0-browser.mjs",
+    "test:works": "node tests/works-browser.mjs",
+    "test:field-offline": "node tests/field-offline-browser.mjs",
+    "test:portal": "node tests/portal-browser.mjs",
+    "test:a11y": "node tests/a11y-browser.mjs",
+    "test:browser": "npm run test:ui && npm run test:field && npm run test:field-offline && npm run test:kanban && npm run test:map && npm run test:authorization && npm run test:onboarding && npm run test:sector && npm run test:p0 && npm run test:works && npm run test:portal && npm run test:a11y",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "express": "^5.1.0",
@@ -29,13 +41,19 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.51.0",
     "@types/leaflet": "^1.9.16",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
     "prettier": "^3.9.6",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.72.2",
     "vite": "^6.1.0"
   }
 }

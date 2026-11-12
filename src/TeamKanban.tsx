@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   Filter,
@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import {
   availableMoves,
-  buildKanbanCards,
   cardKey,
   closedStatus,
   flowMetrics,
@@ -28,20 +27,65 @@ const days = (value: number | null) =>
   value === null
     ? "—"
     : `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} d`;
+// Recorte visível das colunas encerradas: Concluídas (por data de conclusão) e, com o filtro,
+// Canceladas/Recusadas (pela última alteração). As colunas abertas vêm sempre completas.
+const closedWindows = [
+  { days: 30, label: "Últimos 30 dias" },
+  { days: 90, label: "Últimos 90 dias" },
+  { days: 365, label: "Últimos 12 meses" },
+  { days: 0, label: "Todo o período" },
+];
 export default function TeamKanban({
-  rows,
-  orders,
   boot,
   can,
   onOpen,
   api,
+  lastSync,
   onRefresh,
 }: any) {
   const [team, setTeam] = useState(""),
     [sector, setSector] = useState(""),
     [query, setQuery] = useState(""),
     [priority, setPriority] = useState(""),
-    [showClosed, setShowClosed] = useState(false);
+    [showClosed, setShowClosed] = useState(false),
+    [closedDays, setClosedDays] = useState(30);
+  // Cartões do quadro (projeção mínima) em GET /api/kanban/cartoes, com a revisão e a ordem
+  // compartilhada da mesma leitura; recarregados a cada sincronização e após cada movimentação.
+  const [boardData, setBoardData] = useState<any>(null),
+    [loadError, setLoadError] = useState(""),
+    [loading, setLoading] = useState(true);
+  const path = `/kanban/cartoes?concluidas_dias=${closedDays}&encerradas=${showClosed ? 1 : 0}`;
+  const load = useCallback(async () => {
+    const result = await api(path);
+    setBoardData(result);
+    setLoadError("");
+    return result;
+  }, [api, path]);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api(path)
+      .then((result: any) => {
+        if (active) {
+          setBoardData(result);
+          setLoadError("");
+        }
+      })
+      .catch((e: any) => {
+        if (active) setLoadError(e.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, path, lastSync]);
+  /** Recarrega o quadro e, sem esperar, os contadores da área de gestão. */
+  const reloadBoard = async () => {
+    await load();
+    Promise.resolve(onRefresh?.()).catch(() => {});
+  };
   const [filtersOpen, setFiltersOpen] = useState(false),
     [loadsOpen, setLoadsOpen] = useState(false),
     [rulesOpen, setRulesOpen] = useState(false);
@@ -62,7 +106,13 @@ export default function TeamKanban({
   const board = useRef<HTMLDivElement>(null),
     dragRef = useRef<string | null>(null),
     touchTarget = useRef<{ status: string; before?: string } | null>(null);
-  const config = boot.kanban || { revision: 0, limits: {}, order: {} };
+  const config = boardData
+    ? {
+        revision: boardData.revision,
+        limits: boardData.limits,
+        order: boardData.order,
+      }
+    : boot.kanban || { revision: 0, limits: {}, order: {} };
   const canSort = can("classify") || can("schedule") || can("validate");
   const teams = boot.catalogs.filter(
     (t: any) => t.kind === "equipes" && (!sector || t.sector_id === sector),
@@ -70,9 +120,20 @@ export default function TeamKanban({
   const name = (id: string) =>
     boot.catalogs.find((c: any) => c.id === id)?.name || "Sem equipe";
   const cards = useMemo(
-    () => sortKanbanCards(buildKanbanCards(rows, orders), config.order),
-    [rows, orders, config.order],
+    () => sortKanbanCards(boardData?.cards || [], config.order),
+    [boardData, config.order],
   );
+  const orders = useMemo(
+    () => cards.filter((c) => c.type === "order"),
+    [cards],
+  );
+  const loadedCount = (status: string) =>
+    cards.filter((c) => c.status === status).length;
+  // Coluna encerrada com recorte: há cartões fora do período carregado.
+  const partial = (status: string) =>
+    loadedCount(status) < (boardData?.counts?.[status] || 0);
+  const windowLabel =
+    closedWindows.find((w) => w.days === closedDays)?.label || "";
   const scoped = cards.filter(
     (card) =>
       (!sector || card.sector_id === sector) &&
@@ -116,10 +177,10 @@ export default function TeamKanban({
   const validTarget = (card: any, status: string) =>
     card &&
     (card.status === status
-      ? canSort
+      ? canSort && !partial(status)
       : availableMoves(card, can).some((m) => m.status === status));
-  const fullCount = (status: string) =>
-    cards.filter((c) => c.status === status).length;
+  // Contagem do quadro completo (WIP), calculada no servidor.
+  const fullCount = (status: string) => boardData?.counts?.[status] || 0;
   const capacity = (status: string) =>
     !config.limits[status] || fullCount(status) < config.limits[status];
   const action = (card: any) => {
@@ -144,7 +205,7 @@ export default function TeamKanban({
       await fn();
       setMessage(success);
       try {
-        await onRefresh();
+        await reloadBoard();
       } catch {
         setError(
           "A alteração foi salva, mas o quadro não foi atualizado. Atualize os dados antes de continuar.",
@@ -455,7 +516,11 @@ export default function TeamKanban({
           </form>
         </section>
       )}
-      <div className="kanban-flow" aria-label="Indicadores de fluxo">
+      <div
+        className="kanban-flow"
+        role="group"
+        aria-label="Indicadores de fluxo"
+      >
         <span>
           <strong>{metrics.wip}</strong> OS em andamento
         </span>
@@ -475,15 +540,34 @@ export default function TeamKanban({
           <button
             className="text-button"
             disabled={busy}
-            onClick={() => void perform(onRefresh, "Quadro atualizado.")}
+            onClick={() => void perform(load, "Quadro atualizado.")}
           >
             Atualizar quadro
           </button>
         </div>
       )}
+      {loadError && (
+        <div className="notice error" role="alert">
+          <span>
+            {boardData
+              ? `Não foi possível atualizar o quadro. Os cartões exibidos podem estar desatualizados. ${loadError}`
+              : `Não foi possível carregar o quadro. ${loadError}`}
+          </span>
+          <button
+            className="text-button"
+            disabled={busy || loading}
+            onClick={() => void perform(load, "Quadro atualizado.")}
+          >
+            Tentar novamente
+          </button>
+        </div>
+      )}
       <div className="kanban-caption">
         <span role="status" aria-live="polite">
-          {message || `${filtered.length} cartões · atualizado automaticamente`}
+          {message ||
+            (!boardData && loading
+              ? "Carregando o quadro..."
+              : `${filtered.length} cartões · atualizado automaticamente`)}
         </span>
         <span>Arraste para ordenar ou mudar de etapa</span>
       </div>
@@ -550,6 +634,57 @@ export default function TeamKanban({
                     {limit > 0 && <small> / {limit}</small>}
                   </span>
                 </header>
+                {closedStatus(col.status) && (
+                  <div className="kanban-window">
+                    <label>
+                      <span>
+                        {col.status === "CONCLUIDA"
+                          ? "Concluídas exibidas"
+                          : "Período exibido"}
+                      </span>
+                      <select
+                        aria-label={`Período de ${col.title}`}
+                        value={closedDays}
+                        disabled={loading}
+                        onChange={(e) => setClosedDays(Number(e.target.value))}
+                      >
+                        {closedWindows.map((w) => (
+                          <option key={w.days} value={w.days}>
+                            {w.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <small role="status">
+                      {partial(col.status)
+                        ? `${loadedCount(col.status)} de ${fullCount(col.status)} · ${windowLabel.toLocaleLowerCase("pt-BR")}`
+                        : `Todas as ${fullCount(col.status)} exibidas`}
+                    </small>
+                    {partial(col.status) && closedDays > 0 && (
+                      <button
+                        type="button"
+                        className="text-button"
+                        disabled={loading}
+                        onClick={() =>
+                          setClosedDays(
+                            closedWindows[
+                              closedWindows.findIndex(
+                                (w) => w.days === closedDays,
+                              ) + 1
+                            ].days,
+                          )
+                        }
+                      >
+                        Carregar período maior
+                      </button>
+                    )}
+                    {partial(col.status) && canSort && (
+                      <small>
+                        Para ordenar esta coluna, exiba todo o período.
+                      </small>
+                    )}
+                  </div>
+                )}
                 <p className="kanban-column-hint">
                   {col.hint}
                   {limit > 0 && (
@@ -785,7 +920,11 @@ export default function TeamKanban({
                             className="kanban-prioritize"
                             title="Mover para o topo desta coluna"
                             aria-label={`Priorizar ${card.code}`}
-                            disabled={busy || members[0]?.id === card.id}
+                            disabled={
+                              busy ||
+                              members[0]?.id === card.id ||
+                              partial(card.status)
+                            }
                             onClick={() =>
                               void reorder(
                                 card,
@@ -824,7 +963,7 @@ export default function TeamKanban({
           onClose={() => setPending(null)}
           onOpen={onOpen}
           onSaved={async () => {
-            await onRefresh();
+            await reloadBoard();
             setMessage("Etapa atualizada e registrada no histórico.");
             setPending(null);
           }}

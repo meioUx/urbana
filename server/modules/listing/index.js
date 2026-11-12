@@ -28,11 +28,27 @@ const schema = z.object({
   type: z.enum(["entrada", "saida"]).optional(),
   deadline: z.enum(["late", "soon", "ontime"]).optional(),
   bbox: z.string().max(200).optional(),
+  project_id: z.string().max(200).optional(),
+  period_from: date.optional(),
+  period_to: date.optional(),
 });
-const json = (db, key, prefix = "") =>
+// SQL expression reading a text field of the JSON `data` column, portable between dialects.
+// `key` must be a trusted identifier (never user input).
+export const jsonField = (db, key, prefix = "") =>
   db.dialect === "postgres"
     ? `(${prefix}data::jsonb ->> '${key}')`
     : `json_extract(${prefix}data, '$.${key}')`;
+const json = jsonField;
+// SQL form of canAccessOrder (domain.js) for the orders table (optionally aliased): Equipe de
+// Campo only reaches orders of its team that are unassigned or assigned to the user. Returns
+// { sql, params }; sql is "1=1" for every other role.
+export const orderAccess = (db, user, prefix = "") =>
+  user?.role === "Equipe de Campo"
+    ? {
+        sql: `(${prefix}team_id=? AND (${json(db, "assigned_user_id", prefix)} IS NULL OR ${json(db, "assigned_user_id", prefix)}='' OR ${json(db, "assigned_user_id", prefix)}=?))`,
+        params: [user.team_id, user.id],
+      }
+    : { sql: "1=1", params: [] };
 export async function listRecords(
   db,
   kind,
@@ -41,16 +57,25 @@ export async function listRecords(
   { paginate = true } = {},
 ) {
   if (
-    !["occurrences", "orders", "audit_logs", "inventory_movements"].includes(
-      kind,
-    )
+    ![
+      "occurrences",
+      "orders",
+      "audit_logs",
+      "inventory_movements",
+      "interventions",
+      "projects",
+    ].includes(kind)
   )
     throw new TypeError("Listagem inválida.");
   const q = schema.parse(query),
     params = [],
     conditions = [];
-  if (q.from && q.to && q.from > q.to)
+  if (
+    (q.from && q.to && q.from > q.to) ||
+    (q.period_from && q.period_to && q.period_from > q.period_to)
+  )
     throw Object.assign(new Error("Período inválido."), { status: 400 });
+  const works = kind === "interventions" || kind === "projects";
   const audit = kind === "audit_logs",
     inventory = kind === "inventory_movements",
     raw = audit || inventory,
@@ -65,7 +90,11 @@ export async function listRecords(
       ? ["material_id", "order_id", "user_id", "type"]
       : kind === "orders"
         ? ["status", "priority", "sector_id", "team_id"]
-        : ["status", "priority", "category_id", "sector_id"])
+        : kind === "interventions"
+          ? ["status", "priority", "sector_id"]
+          : kind === "projects"
+            ? ["status"]
+            : ["status", "priority", "category_id", "sector_id"])
     if (q[key]) {
       if (key === "status" && q[key].includes(",")) {
         const values = q[key].split(",");
@@ -77,6 +106,14 @@ export async function listRecords(
     }
   if (!audit && q.neighborhood && kind === "occurrences")
     add(`${json(db, "neighborhood")}=?`, q.neighborhood);
+  if (kind === "interventions" && q.project_id)
+    add(
+      "id IN (SELECT intervention_id FROM project_interventions WHERE project_id=?)",
+      q.project_id,
+    );
+  // Works: planned period overlapping [period_from, period_to] (dates, inclusive).
+  if (works && q.period_from) add("planned_end>=?", q.period_from);
+  if (works && q.period_to) add("planned_start<=?", q.period_to);
   if (q.from) add(`${alias}created_at>=?`, q.from + "T00:00:00.000Z");
   if (q.to) {
     const end = new Date(q.to + "T00:00:00.000Z");
@@ -84,8 +121,16 @@ export async function listRecords(
     add(`${alias}created_at<?`, end.toISOString());
   }
   if (q.q && !raw) {
-    const fields =
-      kind === "occurrences"
+    const fields = works
+      ? [
+          "code",
+          json(db, "title"),
+          json(db, "responsible"),
+          ...(kind === "interventions"
+            ? [json(db, "location"), json(db, "neighborhood")]
+            : []),
+        ]
+      : kind === "occurrences"
         ? [
             "code",
             json(db, "address"),
@@ -124,7 +169,7 @@ export async function listRecords(
       add("due_at>=? AND due_at<=?", stamp, tomorrow);
     else add("due_at>?", tomorrow);
   }
-  if (q.bbox && kind === "occurrences") {
+  if (q.bbox && (kind === "occurrences" || kind === "interventions")) {
     const box = q.bbox.split(",").map(Number);
     if (
       box.length !== 4 ||
@@ -141,6 +186,8 @@ export async function listRecords(
       });
     if (db.dialect === "postgres")
       add("geom && ST_MakeEnvelope(?,?,?, ?,4326)", ...box);
+    else if (kind === "interventions")
+      add("max_lng>=? AND max_lat>=? AND min_lng<=? AND min_lat<=?", ...box);
     else add("lng>=? AND lat>=? AND lng<=? AND lat<=?", ...box);
   }
   const paged = paginate && (q.limit !== undefined || q.cursor !== undefined);

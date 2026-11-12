@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#0b5d47" />
+    <meta
+      name="description"
+      content="Registre problemas de manutenção urbana e acompanhe o atendimento pelo número da demanda."
+    />
+    <title>Portal do cidadão | Manutenção urbana</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <a class="skip-link" href="#conteudo">Ir para o conteúdo</a>
+    <header class="portal-header">
+      <div class="portal-wrap">
+        <p class="portal-brand">
+          <span id="portal-municipality">Prefeitura</span> · Portal do cidadão
+        </p>
+        <nav aria-label="Portal do cidadão">
+          <a href="/portal" id="nav-register">Registrar demanda</a>
+          <a href="/portal/acompanhar" id="nav-track">Acompanhar demanda</a>
+        </nav>
+      </div>
+    </header>
+    <main id="conteudo" class="portal-wrap" tabindex="-1">
+      <p class="portal-loading">Carregando…</p>
+      <noscript
+        ><p>Para usar o portal, ative o JavaScript do navegador.</p></noscript
+      >
+    </main>
+    <footer class="portal-footer">
+      <div class="portal-wrap">
+        <p>
+          Em emergência, não use este portal: ligue 193 (Bombeiros), 199 (Defesa
+          Civil) ou 190 (Polícia Militar).
+        </p>
+      </div>
+    </footer>
+    <script type="module" src="/src/portal/main.ts"></script>
+  </body>
+</html>

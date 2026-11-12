@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useModalDialog } from "./shared/ui";
 import { ArrowRight, LocateFixed, X } from "lucide-react";
 import { kanbanColumns } from "./kanban-model.mjs";
 
@@ -15,7 +16,7 @@ export default function KanbanMoveDialog({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
-  const [conflict,setConflict] = useState(false);
+  const [conflict, setConflict] = useState(false);
   const [locating, setLocating] = useState(false);
   const [data, setData] = useState<any>({
     category_id: card.category_id || card.occurrences[0]?.category_id || "",
@@ -31,9 +32,7 @@ export default function KanbanMoveDialog({
     notes: "",
     reason: "",
   });
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
+  useModalDialog(dialog);
   const set = (key: string, value: any) =>
     setData((old: any) => ({ ...old, [key]: value }));
   const teams = boot.catalogs.filter(
@@ -107,7 +106,21 @@ export default function KanbanMoveDialog({
           {error}
         </p>
       )}
-      {conflict && <p role="alert">Atualize o quadro antes de continuar.<button type="button" className="button secondary" onClick={() => {onClose();onOpen(card.type,card.id,"overview");}}>Ver versão atual</button></p>}
+      {conflict && (
+        <p role="alert">
+          Atualize o quadro antes de continuar.
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              onClose();
+              onOpen(card.type, card.id, "overview");
+            }}
+          >
+            Ver versão atual
+          </button>
+        </p>
+      )}
       {saved ? (
         <>
           <p>
@@ -143,7 +156,10 @@ export default function KanbanMoveDialog({
             setError("");
             try {
               const base = `/${card.type === "order" ? "ordens-servico" : "ocorrencias"}/${card.id}`;
-              let body: any = { kanban_expected_status: card.status, version: card.version };
+              let body: any = {
+                kanban_expected_status: card.status,
+                version: card.version,
+              };
               if (move.form === "triage")
                 body = {
                   ...body,

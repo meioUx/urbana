@@ -27,11 +27,20 @@ export const orderStatuses = Object.freeze([
   workflowStatus.CANCELADA,
 ]);
 
-export const statuses = Object.freeze([...occurrenceStatuses, ...orderStatuses]);
+export const statuses = Object.freeze([
+  ...occurrenceStatuses,
+  ...orderStatuses,
+]);
 
-const freezeTransitions = (table) => Object.freeze(Object.fromEntries(
-  Object.entries(table).map(([state, destinations]) => [state, Object.freeze(destinations)]),
-));
+const freezeTransitions = (table) =>
+  Object.freeze(
+    Object.fromEntries(
+      Object.entries(table).map(([state, destinations]) => [
+        state,
+        Object.freeze(destinations),
+      ]),
+    ),
+  );
 
 export const occurrenceTransitions = freezeTransitions({
   [workflowStatus.IDENTIFICADA]: [

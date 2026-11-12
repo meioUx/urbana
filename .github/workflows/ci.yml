@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, testes e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      # Mesma imagem do compose.local.yaml. O banco "urbana_test" é o isolado usado por
+      # tests/postgres.test.js (o teste cria e remove um schema próprio dentro dele).
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: urbana
+          POSTGRES_PASSWORD: urbana
+          POSTGRES_DB: urbana_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U urbana -d urbana_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      URBANA_POSTGRES_TEST_URL: postgres://urbana:urbana@localhost:5432/urbana_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Habilitar PostGIS no banco de testes
+        # docker/postgres-init/01-test-database.sql só roda no compose local; aqui o banco já
+        # nasce via POSTGRES_DB e a extensão é criada explicitamente. O entrypoint da imagem
+        # reinicia o Postgres após a inicialização, então a conexão é repetida até estabilizar.
+        run: |
+          node --input-type=module -e "
+          import pg from 'pg';
+          for (let attempt = 1; ; attempt++) {
+            const c = new pg.Client({ connectionString: process.env.URBANA_POSTGRES_TEST_URL });
+            c.on('error', () => {});
+            try {
+              await c.connect();
+              await c.query('CREATE EXTENSION IF NOT EXISTS postgis');
+              console.log((await c.query('SELECT postgis_version() AS v')).rows[0].v);
+              await c.end();
+              break;
+            } catch (error) {
+              await c.end().catch(() => {});
+              if (attempt >= 30) throw error;
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+          }
+          "
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Formatação
+        run: npm run format:check
+
+      - name: Testes (inclui PostgreSQL/PostGIS)
+        run: npm test
+
+      - name: Build
+        run: npm run build

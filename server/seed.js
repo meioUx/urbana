@@ -1,4 +1,4 @@
-import {initializeModules} from './user-permissions.js';
+import { initializeModules } from "./user-permissions.js";
 import { randomUUID } from "node:crypto";
 import { hashPassword, now } from "./domain.js";
 
@@ -345,25 +345,28 @@ export async function seed(db) {
       ].includes(states[i])
     ) {
       const oid = randomUUID();
-      await db.run("INSERT INTO orders(id,code,sector_id,team_id,status,priority,due_at,created_at,updated_at,data) VALUES(?,?,?,?,?,?,?,?,?,?)", [
-        oid,
-        `OS-2026-${String(i + 1).padStart(5, "0")}`,
-        "sector-1",
-        i % 2 ? "team-1" : "team-2",
-        states[i],
-        priority,
-        new Date(new Date(created).getTime() + 120 * 3600000).toISOString(),
-        created,
-        created,
-        JSON.stringify({
-          scheduled_at: created.slice(0, 10),
-          responsible: "João Santos",
-          notes: "Registro demonstrativo",
-          started_at: states[i] === "PROGRAMADA" ? null : created,
-          completed_at: states[i] === "CONCLUIDA" ? now() : null,
-          demo: true,
-        }),
-      ]);
+      await db.run(
+        "INSERT INTO orders(id,code,sector_id,team_id,status,priority,due_at,created_at,updated_at,data) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        [
+          oid,
+          `OS-2026-${String(i + 1).padStart(5, "0")}`,
+          "sector-1",
+          i % 2 ? "team-1" : "team-2",
+          states[i],
+          priority,
+          new Date(new Date(created).getTime() + 120 * 3600000).toISOString(),
+          created,
+          created,
+          JSON.stringify({
+            scheduled_at: created.slice(0, 10),
+            responsible: "João Santos",
+            notes: "Registro demonstrativo",
+            started_at: states[i] === "PROGRAMADA" ? null : created,
+            completed_at: states[i] === "CONCLUIDA" ? now() : null,
+            demo: true,
+          }),
+        ],
+      );
       await db.run("INSERT INTO order_occurrences VALUES(?,?)", [oid, id]);
     }
   }

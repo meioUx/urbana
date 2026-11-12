@@ -1,3 +1,4 @@
+import "./support/same-origin-fetch.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -320,6 +321,84 @@ test("maintenance master always has every module and action, and its identity ca
     .data.user;
   assert.equal(hasModuleAccess(ordinary, "field"), false);
   assert.equal(canPerformAction(ordinary, "execute"), false);
+});
+
+test("unknown /api paths answer 404 to authenticated users without opening module access", async () => {
+  const notFound = { error: "Rota não encontrada." };
+  // Paths no module claims and no registered route matches: 404 with the fallback body, any method.
+  for (const cookie of [admin, ...Object.values(cookies)])
+    for (const [path, method] of [
+      ["/nao-existe", "GET"],
+      ["/nao-existe", "POST"],
+      ["/nao-existe/1/2", "DELETE"],
+      ["/", "GET"],
+    ]) {
+      const r = await request(
+        path,
+        method,
+        method === "GET" ? undefined : {},
+        cookie,
+      );
+      assert.equal(
+        r.status,
+        404,
+        `${method} ${path} ${JSON.stringify(r.data)}`,
+      );
+      assert.deepEqual(r.data, notFound);
+    }
+  // Anonymous: still 401, the server does not reveal which routes exist.
+  for (const path of ["/nao-existe", "/users", "/campo/nao-existe"])
+    assert.equal(
+      (await request(path, "GET", undefined, null)).status,
+      401,
+      path,
+    );
+  // Module-prefixed unknown paths keep 403 for users without the module.
+  assert.equal(
+    (await request("/campo/nao-existe", "GET", undefined, cookies.gestor))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await request("/users/x/nao-existe", "GET", undefined, cookies.gestor))
+      .status,
+    403,
+  );
+  // Real routes the module map does not recognize (case-insensitive router match) stay denied by default.
+  for (const path of ["/USERS", "/Campo", "/Auditoria"])
+    assert.deepEqual(
+      await request(path, "GET", undefined, cookies.consulta),
+      {
+        status: 403,
+        data: { error: "Módulo não autorizado." },
+        cookie: undefined,
+      },
+      path,
+    );
+  // A known route with an unregistered method still goes through the module check.
+  assert.equal(
+    (await request("/users", "DELETE", undefined, cookies.gestor)).status,
+    403,
+  );
+  assert.equal(
+    (await request("/users", "DELETE", undefined, admin)).status,
+    404,
+  );
+  // Production adds an SPA catch-all after createApp; it is unreachable for /api and must not count.
+  const spa = createApp(db);
+  spa.get("/{*path}", (req, res) => res.send("spa"));
+  const spaServer = spa.listen(0, "127.0.0.1");
+  await new Promise((r) => spaServer.once("listening", r));
+  try {
+    const r = await fetch(
+      `http://127.0.0.1:${spaServer.address().port}/api/nao-existe`,
+      { headers: { cookie: cookies.campo } },
+    );
+    assert.equal(r.status, 404);
+    assert.deepEqual(await r.json(), notFound);
+  } finally {
+    await new Promise((r) => spaServer.close(r));
+  }
 });
 
 test("migration is compatible, persistent, restart safe and preserves explicit empty grants", async () => {

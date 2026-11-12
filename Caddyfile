@@ -1,4 +1,13 @@
 {$URBANA_DOMAIN} {
     encode zstd gzip
+    # Uploads are capped at 15 MB by the app (JSON at 1 MB); refuse larger bodies at the edge.
+    request_body {
+        max_size 20MB
+    }
+    # Security headers (CSP, HSTS, X-Frame-Options, Permissions-Policy) come from the app, so the
+    # same values apply with or without the proxy; here only the proxy's own banner is removed.
+    header -Server
+    # Host is preserved upstream (the app compares it with Origin). Caddy replaces any client-sent
+    # X-Forwarded-For with the real client address, which the app trusts via TRUST_PROXY=1.
     reverse_proxy app:3000
 }

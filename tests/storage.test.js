@@ -1,3 +1,4 @@
+import "./support/same-origin-fetch.js";
 import { createUploadGuard } from "../server/modules/files/upload-limit.js";
 import { EventEmitter } from "node:events";
 import test from "node:test";

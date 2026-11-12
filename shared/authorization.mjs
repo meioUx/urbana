@@ -11,6 +11,8 @@ export const actionRoles = {
   execute: ["Equipe de Campo"],
   validate: ["Administrador", "Gestor", "Fiscalização"],
   admin: ["Administrador"],
+  // Obras e intervenções: cadastrar, editar, mudar situação e vincular (gestão).
+  works: ["Administrador", "Gestor"],
 };
 export const moduleCatalog = [
   ["dashboard", "Visão geral", "/"],
@@ -19,6 +21,7 @@ export const moduleCatalog = [
   ["triagem", "Triagem", "/triagem"],
   ["kanban", "Kanban de equipes", "/kanban"],
   ["planning", "Planejamento", "/planejamento"],
+  ["works", "Obras e intervenções", "/obras"],
   ["orders", "Ordens de serviço", "/ordens-servico"],
   ["sector-control", "Controle do setor", "/controle-setor"],
   ["review", "Análise de campo", "/fiscalizacao"],
@@ -35,6 +38,7 @@ const management = [
   "triagem",
   "kanban",
   "planning",
+  "works",
   "orders",
   "sector-control",
   "review",
@@ -54,6 +58,7 @@ export const roleModules = {
     "orders",
     "review",
     "kanban",
+    "works",
   ],
   Consulta: [
     "dashboard",
@@ -65,6 +70,7 @@ export const roleModules = {
     "teams",
     "materials",
     "equipment",
+    "works",
   ],
 };
 export const canRoleAccessModule = (role, module) =>
@@ -113,6 +119,7 @@ export function apiModules(path, method) {
   if (p.startsWith("/planejamento") || p.startsWith("/planos-acao"))
     return ["planning"];
   if (p.startsWith("/controle-setor")) return ["sector-control"];
+  if (p.startsWith("/intervencoes") || p.startsWith("/obras")) return ["works"];
   if (p.startsWith("/kanban")) return ["kanban"];
   if (
     p.startsWith("/almoxarifado") ||
@@ -132,6 +139,7 @@ export function apiModules(path, method) {
         "map",
         "dashboard",
         "field",
+        "works",
       ];
     if (/\/(classificar|encaminhar|recusar)$/.test(p) || method === "PATCH")
       return ["triagem"];
@@ -147,6 +155,7 @@ export function apiModules(path, method) {
         "dashboard",
         "sector-control",
         "field",
+        "works",
       ];
     if (
       /\/(assumir|iniciar|chegada|concluir|devolver|material|equipamento)$/.test(

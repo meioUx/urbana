@@ -15,22 +15,24 @@ Implementada a rota `/mapa`, acessível por **Abrir mapa completo ↗** no mapa 
 - `package.json`: inclui a nova interface em `test:map`.
 - `docs/mapa-territorial.md`: este relatório.
 
+Nota de 2026-11-12: depois da divisão de `server/app.js` e `src/main.tsx`, a rota do resumo está em `server/routes/occurrences.js` e a página do mapa em `src/modules/map/MapPage.tsx`; os nomes acima descrevem a entrega original. Na segunda rodada o mapa ganhou uma camada opcional de **intervenções** (`src/modules/map/InterventionLayer.tsx`, módulo Obras e intervenções), descrita em [MAP-TILES](MAP-TILES.md); o endpoint GeoJSON de ocorrências e o popup operacional não mudaram.
+
 As alterações prévias em `shared/kanban.mjs`, `src/TeamKanban.tsx` e `tests/kanban-browser.mjs` foram preservadas.
 
 ## Reutilização e dados
 
 Reutilizados `GeoMap`, Leaflet, `heatLayer`, provider/configuração e política de tiles, cores do workflow, campos e estados dos filtros, bootstrap/catálogos, cliente API, GeoJSON e regras existentes de acesso à OS. A rota GeoJSON mantém suporte a bbox. Não houve mudança de state machine, permissões ou vínculo ocorrência → OS.
 
-| Campo | Origem |
-|---|---|
-| Identificação da OS | `orders.code` da OS ligada via `order_occurrences` |
-| Endereço | `occurrences.address` do ponto selecionado |
-| Início | `orders.started_at`, registrado ao iniciar execução |
-| Atendimento | `orders.finished_at`, registrado ao enviar o serviço executado para validação; na ausência, `orders.scheduled_at` |
-| Finalização | `orders.completed_at`, registrado na validação; na ausência, `orders.due_at` como previsão explicitamente identificada |
-| Equipe | Catálogo de equipes pelo `orders.team_id`; omitida se ausente |
-| Antes | Evidência de imagem da OS com estágio `antes`, do ciclo vigente |
-| Depois | Evidência de imagem da OS com estágio `depois`, posterior ao início/reabertura/reprogramação vigentes |
+| Campo               | Origem                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Identificação da OS | `orders.code` da OS ligada via `order_occurrences`                                                                     |
+| Endereço            | `occurrences.address` do ponto selecionado                                                                             |
+| Início              | `orders.started_at`, registrado ao iniciar execução                                                                    |
+| Atendimento         | `orders.finished_at`, registrado ao enviar o serviço executado para validação; na ausência, `orders.scheduled_at`      |
+| Finalização         | `orders.completed_at`, registrado na validação; na ausência, `orders.due_at` como previsão explicitamente identificada |
+| Equipe              | Catálogo de equipes pelo `orders.team_id`; omitida se ausente                                                          |
+| Antes               | Evidência de imagem da OS com estágio `antes`, do ciclo vigente                                                        |
+| Depois              | Evidência de imagem da OS com estágio `depois`, posterior ao início/reabertura/reprogramação vigentes                  |
 
 Não se usa data de cadastro como execução. Datas ausentes aparecem como travessão. Sem OS disponível, o card identifica a ocorrência e informa a ausência de OS. Havendo múltiplas OS acessíveis, são exibidas separadamente, sem escolher uma arbitrariamente. As fotos são selecionadas pela evidência mais recente de cada estágio; fotos de registro da ocorrência não são tratadas como evidência de execução da OS.
 

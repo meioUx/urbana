@@ -5,12 +5,10 @@ export function createUploadGuard(maximum = 4) {
   let active = 0;
   return (req, res, next) => {
     if (active >= maximum)
-      return res
-        .status(429)
-        .json({
-          error: "Há vários arquivos em envio. Aguarde e tente novamente.",
-          code: "UPLOAD_BUSY",
-        });
+      return res.status(429).json({
+        error: "Há vários arquivos em envio. Aguarde e tente novamente.",
+        code: "UPLOAD_BUSY",
+      });
     active++;
     let released = false;
     const release = () => {
