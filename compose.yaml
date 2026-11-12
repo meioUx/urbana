@@ -13,9 +13,21 @@ services:
       DEMO_DATA: "false"
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina uma senha inicial exclusiva}
       SECURE_COOKIE: "true"
+      # Single proxy hop (Caddy): req.ip becomes the client address for the login limit.
+      TRUST_PROXY: "1"
+      # Same tile URL used at build time, so the Content-Security-Policy allows its images.
+      VITE_MAP_TILE_URL: ${VITE_MAP_TILE_URL:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # Antimalware (optional, see the clamav service below). Empty CLAMAV_HOST = disabled.
+      CLAMAV_HOST: ${CLAMAV_HOST:-}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      CLAMAV_TIMEOUT_MS: ${CLAMAV_TIMEOUT_MS:-10000}
+      CLAMAV_FAIL_MODE: ${CLAMAV_FAIL_MODE:-closed}
+      CLAMAV_STREAM_MAX_BYTES: ${CLAMAV_STREAM_MAX_BYTES:-26214400}
+      # Citizen portal emergency switch: "off" forces the portal off regardless of the admin setting.
+      URBANA_PUBLIC_PORTAL: ${URBANA_PUBLIC_PORTAL:-}
     volumes:
       - urban_data:/app/data
   https:
@@ -34,7 +46,24 @@ services:
     depends_on:
       app:
         condition: service_healthy
+  # Optional antimalware scan of uploads. Off by default: `docker compose up` does not start it.
+  # To enable: set CLAMAV_HOST=clamav on the app service (in .env or the environment) and run
+  # `docker compose --profile antimalware up -d`. The first start downloads signatures and takes
+  # a few minutes; the app refuses uploads (503) while clamd is down unless CLAMAV_FAIL_MODE=open.
+  clamav:
+    image: clamav/clamav:stable
+    profiles: ["antimalware"]
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
 volumes:
   urban_data:
+  clamav_db:
   caddy_data:
   caddy_config:

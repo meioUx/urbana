@@ -38,6 +38,9 @@ services:
       DATABASE_URL: postgres://urbana:urbana@db:5432/urbana
       DEMO_DATA: "true"
       SECURE_COOKIE: "false"
+      # Local only: the mobile app (urbana-campo) is tested against this backend by the LAN IP, which
+      # needs HOST=0.0.0.0 with demo accounts. Never use in production (ignored when SECURE_COOKIE=true).
+      URBANA_ALLOW_INSECURE_DEMO: "true"
     ports:
       - "3000:3000"
     volumes:

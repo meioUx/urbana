@@ -2,7 +2,7 @@ FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY index.html tsconfig.json vite.config.js ./
+COPY index.html portal.html tsconfig.json vite.config.js ./
 COPY src ./src
 COPY shared ./shared
 COPY public ./public
@@ -18,6 +18,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && mkdir -p /app/data && chown -R node:node /app
 COPY --from=build /app/dist ./dist
 COPY server ./server
+COPY scripts/backup.mjs scripts/cleanup-orphan-uploads.mjs ./scripts/
 COPY shared ./shared
 USER node
 VOLUME ["/app/data"]
