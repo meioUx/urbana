@@ -1,5 +1,7 @@
 # Relatório de checkpoint P0/P1/P2
 
+> Nota de 2026-11-12: este relatório é o retrato de 2026-10-02 e não foi reescrito. Desde então, a primeira parte do P1 (obras e intervenções com geometria, vínculos, conflitos e camada no mapa) foi entregue na segunda rodada, e vários itens de P0 mudaram (contratos agregados, migrations 10–13, antimalware opcional). O estado atual está no [contexto mestre](URBANA-CONTEXTO-MESTRE.md) e no [Changelog](CHANGELOG.md).
+
 Data: 2026-10-02. **Entrega parcial: P0 em evolução; P1 e P2 não iniciados.** Este documento não declara conclusão do P2. A auditoria anterior às alterações está em [AUDITORIA-P0-P1-P2.md](AUDITORIA-P0-P1-P2.md).
 
 O usuário optou por preparar testes PostgreSQL/PostGIS para execução posterior. Não houve homologação real, implantação, ativação de storage externo nem integração Waze. O gate do pedido (P0 concluído antes de P1/P2) permanece aberto. A solicitação integral P0+P1+P2 ainda não está satisfeita.

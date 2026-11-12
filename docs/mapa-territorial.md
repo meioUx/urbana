@@ -15,6 +15,8 @@ Implementada a rota `/mapa`, acessível por **Abrir mapa completo ↗** no mapa 
 - `package.json`: inclui a nova interface em `test:map`.
 - `docs/mapa-territorial.md`: este relatório.
 
+Nota de 2026-11-12: depois da divisão de `server/app.js` e `src/main.tsx`, a rota do resumo está em `server/routes/occurrences.js` e a página do mapa em `src/modules/map/MapPage.tsx`; os nomes acima descrevem a entrega original. Na segunda rodada o mapa ganhou uma camada opcional de **intervenções** (`src/modules/map/InterventionLayer.tsx`, módulo Obras e intervenções), descrita em [MAP-TILES](MAP-TILES.md); o endpoint GeoJSON de ocorrências e o popup operacional não mudaram.
+
 As alterações prévias em `shared/kanban.mjs`, `src/TeamKanban.tsx` e `tests/kanban-browser.mjs` foram preservadas.
 
 ## Reutilização e dados

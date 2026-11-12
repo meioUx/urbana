@@ -84,6 +84,10 @@ Alterados para onboarding:
 
 Alterações anteriores de autorização já presentes no workspace foram preservadas.
 
+Nota de 2026-11-12 (segunda rodada): o conteúdo do treinamento continua na versão **1** e **não ensina** o módulo Obras e intervenções nem o portal do cidadão; os seis perfis e seus tutoriais não mudaram. A auditoria automatizada de acessibilidade da R7 (`npm run test:a11y`, ver [README](../README.md#testes)) abre a Ajuda com um passo do treinamento aberto e verifica o teclado desse diálogo, mas não substitui a avaliação do tutorial com leitor de tela ou usuários reais.
+
+Nota de 2026-11-12: os caminhos acima descrevem a entrega original. Depois da divisão de `server/app.js` e `src/main.tsx`, o estado de onboarding no bootstrap está em `server/routes/bootstrap.js` (que chama `onboardingState` de `server/onboarding.js`, onde ficam os endpoints `/api/onboarding`), a entrada global em `src/main.tsx` com `src/modules/workspace/useOnboardingNavigation.ts`, e as migrations em `server/migrations/` (a 9 é `009-marker.js`). As contagens de testes abaixo também são da entrega original; a contagem atual está no [Changelog](CHANGELOG.md).
+
 ## Testes e verificação
 
 Testes adicionados cobrem as seis jornadas, filtragem de módulos/ações, ausência de módulos, versão nova, estados persistidos, replay sem perda de conclusão, progresso por tutorial, isolamento do usuário, payloads inválidos, preservação operacional, reinicialização do banco e falha opcional de telemetria.
