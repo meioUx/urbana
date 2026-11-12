@@ -10,14 +10,14 @@ O ambiente `/campo` é exclusivo do perfil Equipe de Campo, inclusive suas APIs 
 
 Acesso efetivo = compatibilidade do perfil × módulo individual liberado × ação funcional permitida. Não existem liberações individuais de ações nem checkbox de administrar permissões. A matriz é um limite obrigatório também para Administradores. Consulta é somente leitura; materiais/estoque são consultáveis quando liberados, com formulário de ajuste oculto e mutações recusadas.
 
-| Perfil | Sugestão inicial / migração 8 |
-| --- | --- |
-| Administrador | Visão geral, Mapa, Ocorrências, Triagem, Kanban, Planejamento, OS, Controle do setor, Análise de campo, Equipes, Materiais, Equipamentos, Administração |
-| Gestor | Mesmos módulos operacionais acima, sem Administração e sem Campo |
-| Triagem | Visão geral, Mapa, Ocorrências, Triagem, Kanban |
-| Equipe de Campo | Campo |
-| Fiscalização | Visão geral, Mapa, Ocorrências, OS, Análise de campo, Kanban |
-| Consulta | Visão geral, Mapa, Ocorrências, OS, Kanban, Planejamento, Equipes, Materiais, Equipamentos |
+| Perfil          | Sugestão inicial / migração 8                                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Administrador   | Visão geral, Mapa, Ocorrências, Triagem, Kanban, Planejamento, OS, Controle do setor, Análise de campo, Equipes, Materiais, Equipamentos, Administração |
+| Gestor          | Mesmos módulos operacionais acima, sem Administração e sem Campo                                                                                        |
+| Triagem         | Visão geral, Mapa, Ocorrências, Triagem, Kanban                                                                                                         |
+| Equipe de Campo | Campo                                                                                                                                                   |
+| Fiscalização    | Visão geral, Mapa, Ocorrências, OS, Análise de campo, Kanban                                                                                            |
+| Consulta        | Visão geral, Mapa, Ocorrências, OS, Kanban, Planejamento, Equipes, Materiais, Equipamentos                                                              |
 
 A migração inicializa os usuários existentes uma única vez com módulos compatíveis; o seed faz o mesmo para a instalação nova. Mantém os acessos de consulta e operação compatíveis com as responsabilidades novas. As antigas possibilidades de executar como Administrador/Gestor, usar Campo com outros perfis, e acessar módulos incompatíveis são intencionalmente retiradas. Não reaplica padrões no login ou reinício: uma lista vazia continua vazia. Concessões são persistidas em `user_module_permissions`, com timestamps e chave usuário/módulo. A migração é transacional em SQLite e PostgreSQL.
 

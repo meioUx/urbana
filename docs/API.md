@@ -19,46 +19,46 @@ Todas as rotas autenticadas exigem módulos compatíveis e liberados, além das 
 - Códigos estruturados (mesmo status e mensagem de antes, apenas com `code`): `BEFORE_PHOTO_REQUIRED` (400), `AFTER_PHOTO_REQUIRED` (400), `MATERIAL_REQUIRED` (400), `INVALID_STATUS` (409, "Ação incompatível com o status atual."), `RECORD_CLOSED` (409, anexos), `INVALID_DUPLICATE_LINK` (400), `ORDER_NOT_ACCESSIBLE` (403, OS de outra equipe/operador), `REQUEST_ID_REUSED` (409), `INVALID_CAPTURED_AT` (400), além de `VERSION_*` e `UPLOAD_BUSY`. Clientes devem decidir por `code`, nunca pela mensagem.
 - 400: schema, vínculo, coordenadas, arquivo ou requisito inválido; 401: sessão ausente/expirada; 403: ação/equipe/origem; 404: entidade/rota; 409: duplicidade, etapa, WIP, revisão, saldo ou confirmação repetida; 429: tentativas de login ou UPLOAD_BUSY; 500: erro interno. Push sem configuração retorna 503. `details` pode ser omitido; erros Zod usam campos de `flatten()`.
 
-| Método | Rota | Função |
-| --- | --- | --- |
-| POST | /auth/login | `{email,password}` |
-| GET | /auth/me | Usuário autenticado |
-| POST | /auth/logout | Encerra sessão |
-| GET | /bootstrap | Usuário, catálogos, regras, configuração e estado do onboarding atual |
-| GET / POST | /ocorrencias | Listar / cadastrar |
-| GET / PATCH | /ocorrencias/:id | Detalhe / classificar em triagem |
-| GET | /ocorrencias/proximas?lat=&lng= | Registros no raio configurado |
-| POST | /ocorrencias/:id/classificar | Categoria, subcategoria, setor, prioridade |
-| POST | /ocorrencias/:id/recusar | `{version,reason}` obrigatório; apenas antes de programar, com permissão de triagem; registra `RECUSADA`, motivo, usuário, data, auditoria |
-| POST | /ocorrencias/:id/encaminhar | Mesmo contrato da classificação |
-| POST | /ocorrencias/:id/anexos | Arquivo da ocorrência |
-| GET / POST | /ordens-servico | Listar / programar |
-| GET | /ordens-servico/:id | Detalhe, ocorrências, evidências e consumo |
-| POST | /ordens-servico/:id/assumir | Iniciar deslocamento |
-| POST | /ordens-servico/:id/iniciar | `{lat,lng}` da chegada |
-| POST | /ordens-servico/:id/material | `{material_id,quantity}` |
-| POST | /ordens-servico/:id/equipamento | `{equipment_id}` |
-| POST | /ordens-servico/:id/anexos | Arquivo da OS |
-| POST | /ordens-servico/:id/concluir | `{notes}` da execução |
-| POST | /ordens-servico/:id/validar | Validação fiscal |
-| POST | /ordens-servico/:id/reabrir | `{reason}` |
-| POST | /ordens-servico/:id/cancelar | `{reason}` |
-| GET | /anexos/:id | Conteúdo autenticado do arquivo |
-| GET | /mapa/ocorrencias | GeoJSON FeatureCollection |
-| GET | /dashboard | Indicadores e dados agregados |
-| GET / POST | /categorias, /setores, /equipes, /materiais, /equipamentos, /secretarias, /departamentos | Catálogos |
-| PATCH | /{catalogo}/:id | Atualizar cadastro |
-| GET / POST | /users | Administrador: listar/criar usuário |
-| PATCH | /settings | `{municipality,duplicate_radius}` |
-| GET | /auditoria | Administrador: pesquisa paginada; array legado até 300 |
-| GET | /planejamento | `{groups,plans}` |
-| POST | /planos-acao | Criar plano; contrato abaixo |
-| GET | /controle-setor?month=AAAA-MM&sector_id= | Controle mensal; Administrador/Gestor |
-| GET | /almoxarifado | Materiais, movimentos e notas; módulo Materiais liberado, inclusive Consulta |
-| POST | /almoxarifado/movimentos | Entrada/saída manual; Administrador/Gestor |
-| POST | /ordens-servico/:id/notas-fiscais/extrair | PDF multipart → rascunho; Administrador/Gestor |
-| POST | /notas-fiscais/:id/confirmar | Confirmar dados/estoque; Administrador/Gestor |
-| GET | /notas-fiscais/:id/arquivo | PDF, sujeito a acesso à OS |
+| Método      | Rota                                                                                     | Função                                                                                                                                     |
+| ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| POST        | /auth/login                                                                              | `{email,password}`                                                                                                                         |
+| GET         | /auth/me                                                                                 | Usuário autenticado                                                                                                                        |
+| POST        | /auth/logout                                                                             | Encerra sessão                                                                                                                             |
+| GET         | /bootstrap                                                                               | Usuário, catálogos, regras, configuração e estado do onboarding atual                                                                      |
+| GET / POST  | /ocorrencias                                                                             | Listar / cadastrar                                                                                                                         |
+| GET / PATCH | /ocorrencias/:id                                                                         | Detalhe / classificar em triagem                                                                                                           |
+| GET         | /ocorrencias/proximas?lat=&lng=                                                          | Registros no raio configurado                                                                                                              |
+| POST        | /ocorrencias/:id/classificar                                                             | Categoria, subcategoria, setor, prioridade                                                                                                 |
+| POST        | /ocorrencias/:id/recusar                                                                 | `{version,reason}` obrigatório; apenas antes de programar, com permissão de triagem; registra `RECUSADA`, motivo, usuário, data, auditoria |
+| POST        | /ocorrencias/:id/encaminhar                                                              | Mesmo contrato da classificação                                                                                                            |
+| POST        | /ocorrencias/:id/anexos                                                                  | Arquivo da ocorrência                                                                                                                      |
+| GET / POST  | /ordens-servico                                                                          | Listar / programar                                                                                                                         |
+| GET         | /ordens-servico/:id                                                                      | Detalhe, ocorrências, evidências e consumo                                                                                                 |
+| POST        | /ordens-servico/:id/assumir                                                              | Iniciar deslocamento                                                                                                                       |
+| POST        | /ordens-servico/:id/iniciar                                                              | `{lat,lng}` da chegada                                                                                                                     |
+| POST        | /ordens-servico/:id/material                                                             | `{material_id,quantity}`                                                                                                                   |
+| POST        | /ordens-servico/:id/equipamento                                                          | `{equipment_id}`                                                                                                                           |
+| POST        | /ordens-servico/:id/anexos                                                               | Arquivo da OS                                                                                                                              |
+| POST        | /ordens-servico/:id/concluir                                                             | `{notes}` da execução                                                                                                                      |
+| POST        | /ordens-servico/:id/validar                                                              | Validação fiscal                                                                                                                           |
+| POST        | /ordens-servico/:id/reabrir                                                              | `{reason}`                                                                                                                                 |
+| POST        | /ordens-servico/:id/cancelar                                                             | `{reason}`                                                                                                                                 |
+| GET         | /anexos/:id                                                                              | Conteúdo autenticado do arquivo                                                                                                            |
+| GET         | /mapa/ocorrencias                                                                        | GeoJSON FeatureCollection                                                                                                                  |
+| GET         | /dashboard                                                                               | Indicadores e dados agregados                                                                                                              |
+| GET / POST  | /categorias, /setores, /equipes, /materiais, /equipamentos, /secretarias, /departamentos | Catálogos                                                                                                                                  |
+| PATCH       | /{catalogo}/:id                                                                          | Atualizar cadastro                                                                                                                         |
+| GET / POST  | /users                                                                                   | Administrador: listar/criar usuário                                                                                                        |
+| PATCH       | /settings                                                                                | `{municipality,duplicate_radius}`                                                                                                          |
+| GET         | /auditoria                                                                               | Administrador: pesquisa paginada; array legado até 300                                                                                     |
+| GET         | /planejamento                                                                            | `{groups,plans}`                                                                                                                           |
+| POST        | /planos-acao                                                                             | Criar plano; contrato abaixo                                                                                                               |
+| GET         | /controle-setor?month=AAAA-MM&sector_id=                                                 | Controle mensal; Administrador/Gestor                                                                                                      |
+| GET         | /almoxarifado                                                                            | Materiais, movimentos e notas; módulo Materiais liberado, inclusive Consulta                                                               |
+| POST        | /almoxarifado/movimentos                                                                 | Entrada/saída manual; Administrador/Gestor                                                                                                 |
+| POST        | /ordens-servico/:id/notas-fiscais/extrair                                                | PDF multipart → rascunho; Administrador/Gestor                                                                                             |
+| POST        | /notas-fiscais/:id/confirmar                                                             | Confirmar dados/estoque; Administrador/Gestor                                                                                              |
+| GET         | /notas-fiscais/:id/arquivo                                                               | PDF, sujeito a acesso à OS                                                                                                                 |
 
 ## Cadastro de ocorrência
 
@@ -164,7 +164,13 @@ Os limites também se aplicam às outras telas. Consulte as regras de cartão, W
 `POST /api/almoxarifado/movimentos`:
 
 ```json
-{"material_id":"material-1","type":"entrada","quantity":10,"unit_cost":25.5,"notes":"Entrada conferida"}
+{
+  "material_id": "material-1",
+  "type": "entrada",
+  "quantity": 10,
+  "unit_cost": 25.5,
+  "notes": "Entrada conferida"
+}
 ```
 
 `type`: `entrada|saida`; quantidade positiva/custo não negativo (até 1e9), motivo obrigatório. Retorna `{id}`. Material inexistente: 400; saída acima do saldo de material controlado: 409. A regra não impõe saldo inicial a material ainda sem movimentos.
@@ -175,20 +181,22 @@ Confirmação: `POST /api/notas-fiscais/:id/confirmar`:
 
 ```json
 {
-  "supplier":"Fornecedor municipal",
-  "invoice_number":"123",
-  "issue_date":"2026-10-02",
-  "total_value":255,
-  "items":[{
-    "description":"Material para pavimento",
-    "material_id":"material-1",
-    "stage":"execucao",
-    "purchased_quantity":10,
-    "used_quantity":2,
-    "unit":"UN",
-    "unit_value":25.5,
-    "product_total":255
-  }]
+  "supplier": "Fornecedor municipal",
+  "invoice_number": "123",
+  "issue_date": "2026-10-02",
+  "total_value": 255,
+  "items": [
+    {
+      "description": "Material para pavimento",
+      "material_id": "material-1",
+      "stage": "execucao",
+      "purchased_quantity": 10,
+      "used_quantity": 2,
+      "unit": "UN",
+      "unit_value": 25.5,
+      "product_total": 255
+    }
+  ]
 }
 ```
 

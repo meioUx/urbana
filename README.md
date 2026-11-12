@@ -6,20 +6,20 @@ O fluxo operacional é **Demanda → Triagem → Programação → Execução �
 
 ## Recursos disponíveis
 
-| Área | Funcionalidades |
-| --- | --- |
-| Visão geral | Indicadores e acompanhamento de estados, prioridades, bairros, prazos e carga das equipes |
-| Ocorrências e triagem | Registro com localização e evidências, identificação de duplicidade, classificação, recusa justificada e filas A analisar / Prontas para programar |
-| Programação e OS | Seleção de equipe do mesmo setor, atribuição para equipe ou operador, consulta da carga e acompanhamento do atendimento |
-| Planejamento | Priorização por urgência, prazo, idade e volume; planos de ação com uma ou mais demandas e emissão de plano + OS na mesma transação |
-| Kanban | Cartões de demanda e OS agrupada, filtros, ordenação compartilhada, limites WIP e movimentação por arraste, teclado ou toque |
-| Mapa territorial | Pontos e mapa de calor, filtros, lista de atendimentos e acesso aos detalhes e evidências |
-| Campo (`/campo`) | Minhas tarefas, assumir atendimento, chegada, fotos antes/depois, materiais, equipamentos, relato, envio para análise e devolução justificada |
-| Análise de campo | Conferência de relato e evidências, validação e reabertura com motivo |
-| Equipes e controle do setor | Estrutura das equipes, carga registrada e acompanhamento dos serviços e contatos do setor |
-| Materiais e equipamentos | Almoxarifado, notas fiscais com revisão antes da confirmação, movimentações de estoque e consumo relacionado às OS |
-| Administração | Usuários, perfis, liberações individuais de módulos, cadastros, configurações e auditoria |
-| Ajuda e onboarding | Boas-vindas por perfil, treinamento contextual e tutoriais individuais acessíveis pela Ajuda |
+| Área                        | Funcionalidades                                                                                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Visão geral                 | Indicadores e acompanhamento de estados, prioridades, bairros, prazos e carga das equipes                                                          |
+| Ocorrências e triagem       | Registro com localização e evidências, identificação de duplicidade, classificação, recusa justificada e filas A analisar / Prontas para programar |
+| Programação e OS            | Seleção de equipe do mesmo setor, atribuição para equipe ou operador, consulta da carga e acompanhamento do atendimento                            |
+| Planejamento                | Priorização por urgência, prazo, idade e volume; planos de ação com uma ou mais demandas e emissão de plano + OS na mesma transação                |
+| Kanban                      | Cartões de demanda e OS agrupada, filtros, ordenação compartilhada, limites WIP e movimentação por arraste, teclado ou toque                       |
+| Mapa territorial            | Pontos e mapa de calor, filtros, lista de atendimentos e acesso aos detalhes e evidências                                                          |
+| Campo (`/campo`)            | Minhas tarefas, assumir atendimento, chegada, fotos antes/depois, materiais, equipamentos, relato, envio para análise e devolução justificada      |
+| Análise de campo            | Conferência de relato e evidências, validação e reabertura com motivo                                                                              |
+| Equipes e controle do setor | Estrutura das equipes, carga registrada e acompanhamento dos serviços e contatos do setor                                                          |
+| Materiais e equipamentos    | Almoxarifado, notas fiscais com revisão antes da confirmação, movimentações de estoque e consumo relacionado às OS                                 |
+| Administração               | Usuários, perfis, liberações individuais de módulos, cadastros, configurações e auditoria                                                          |
+| Ajuda e onboarding          | Boas-vindas por perfil, treinamento contextual e tutoriais individuais acessíveis pela Ajuda                                                       |
 
 As regras operacionais continuam obrigatórias: triagem prepara a demanda; gestão programa; campo executa; **Enviar para análise** deixa a OS em **Aguardando validação**. Gestão/fiscalização confere antes da conclusão definitiva. Devolução exige justificativa e reabertura exige motivo. Algumas exigências de fotos, materiais e equipamentos dependem da categoria.
 
@@ -37,14 +37,14 @@ Acesse http://127.0.0.1:3000. Para desenvolvimento com atualização automática
 
 Na primeira execução, o banco e o seed são criados. Os exemplos usam Balneário Camboriú como referência geográfica e não representam demandas reais.
 
-| Perfil de demonstração | E-mail | Senha inicial |
-| --- | --- | --- |
-| Administrador / master de manutenção | admin@urbana.local | Urbana@2026 |
-| Gestor | gestor@urbana.local | Urbana@2026 |
-| Triagem | triagem@urbana.local | Urbana@2026 |
-| Equipe de Campo | campo@urbana.local | Urbana@2026 |
-| Fiscalização | fiscal@urbana.local | Urbana@2026 |
-| Consulta | consulta@urbana.local | Urbana@2026 |
+| Perfil de demonstração               | E-mail                | Senha inicial |
+| ------------------------------------ | --------------------- | ------------- |
+| Administrador / master de manutenção | admin@urbana.local    | Urbana@2026   |
+| Gestor                               | gestor@urbana.local   | Urbana@2026   |
+| Triagem                              | triagem@urbana.local  | Urbana@2026   |
+| Equipe de Campo                      | campo@urbana.local    | Urbana@2026   |
+| Fiscalização                         | fiscal@urbana.local   | Urbana@2026   |
+| Consulta                             | consulta@urbana.local | Urbana@2026   |
 
 `ADMIN_PASSWORD` substitui a senha inicial das contas criadas pelo seed, sem redefinir usuários existentes. Para instalação real, use banco novo, `DEMO_DATA=false`, senha própria e HTTPS com `SECURE_COOKIE=true`, seguindo [Implantação](docs/DEPLOYMENT.md).
 
@@ -82,14 +82,14 @@ Usuários comuns sem módulos recebem **Sem módulos disponíveis**, com orienta
 
 No primeiro acesso à versão atual do treinamento, o Urbana apresenta nome, perfil, fluxo geral e responsabilidade do usuário. O percurso usa até seis etapas nas telas reais, explicando o que conferir, qual ação faz o trabalho avançar, para quem ele segue e como tratar exceções.
 
-| Perfil | Processo ensinado |
-| --- | --- |
-| Administrador | Configurar, estruturar, criar usuários, liberar acessos e acompanhar |
-| Gestor | Priorizar, programar, distribuir, acompanhar e resolver exceções |
-| Triagem | Receber, analisar, classificar e encaminhar |
-| Equipe de Campo | Receber, assumir, chegar, executar, registrar e enviar |
-| Fiscalização | Receber, conferir informações/evidências, validar ou reabrir |
-| Consulta | Pesquisar, localizar, consultar e acompanhar |
+| Perfil          | Processo ensinado                                                    |
+| --------------- | -------------------------------------------------------------------- |
+| Administrador   | Configurar, estruturar, criar usuários, liberar acessos e acompanhar |
+| Gestor          | Priorizar, programar, distribuir, acompanhar e resolver exceções     |
+| Triagem         | Receber, analisar, classificar e encaminhar                          |
+| Equipe de Campo | Receber, assumir, chegar, executar, registrar e enviar               |
+| Fiscalização    | Receber, conferir informações/evidências, validar ou reabrir         |
+| Consulta        | Pesquisar, localizar, consultar e acompanhar                         |
 
 **Ajuda → Como usar o Urbana** permite repetir o percurso ou abrir um tutorial individual. O conteúdo considera perfil, módulos e ações autorizadas. O treinamento não cria registros, altera OS ou envia evidências para avançar; sem registro aplicável, explica a área vazia correspondente.
 

@@ -34,14 +34,14 @@ As tabelas são criadas idempotentemente pelo esquema base; a migration 9 regist
 
 O fluxo geral é Demanda → Triagem → Programação → Execução → Validação → Conclusão. A apresentação indica onde o perfil participa; Administrador prepara a estrutura e Consulta acompanha as informações.
 
-| Perfil | Processo ensinado | Etapas principais completas |
-| --- | --- | --- |
-| Administrador | Configurar → Estruturar → Criar usuários → Liberar acessos → Acompanhar | Configuração, estrutura/catálogos, equipes, usuários, módulos, auditoria (6) |
-| Gestor | Priorizar → Programar → Distribuir → Acompanhar → Resolver exceções | Demandas prontas, mapa, planejamento opcional, programação/distribuição, acompanhamento, devoluções (até 6) |
-| Triagem | Receber → Analisar → Classificar → Encaminhar | Fila, informações da demanda, classificação, recusa justificada, passagem à gestão, mapa (6) |
-| Equipe de Campo | Receber → Assumir → Chegar → Executar → Registrar → Enviar | Minhas tarefas, assumir, chegada/foto antes, execução/materiais, relato/foto depois/envio, impossibilidade/devolução (6) |
-| Fiscalização | Receber → Conferir informações → Conferir evidências → Validar ou reabrir | Fila, detalhe, evidências, validação, reabertura com motivo, mapa (6) |
-| Consulta | Pesquisar → Localizar → Consultar → Acompanhar | Visão geral, filtros, ocorrência, OS, mapa (até 5), sem ações de edição |
+| Perfil          | Processo ensinado                                                         | Etapas principais completas                                                                                              |
+| --------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Administrador   | Configurar → Estruturar → Criar usuários → Liberar acessos → Acompanhar   | Configuração, estrutura/catálogos, equipes, usuários, módulos, auditoria (6)                                             |
+| Gestor          | Priorizar → Programar → Distribuir → Acompanhar → Resolver exceções       | Demandas prontas, mapa, planejamento opcional, programação/distribuição, acompanhamento, devoluções (até 6)              |
+| Triagem         | Receber → Analisar → Classificar → Encaminhar                             | Fila, informações da demanda, classificação, recusa justificada, passagem à gestão, mapa (6)                             |
+| Equipe de Campo | Receber → Assumir → Chegar → Executar → Registrar → Enviar                | Minhas tarefas, assumir, chegada/foto antes, execução/materiais, relato/foto depois/envio, impossibilidade/devolução (6) |
+| Fiscalização    | Receber → Conferir informações → Conferir evidências → Validar ou reabrir | Fila, detalhe, evidências, validação, reabertura com motivo, mapa (6)                                                    |
+| Consulta        | Pesquisar → Localizar → Consultar → Acompanhar                            | Visão geral, filtros, ocorrência, OS, mapa (até 5), sem ações de edição                                                  |
 
 Etapas agrupam tarefas relacionadas para manter o fluxo curto. Registrar e Distribuir continuam na sequência visual mesmo quando agrupados com Enviar/Programar. Cada etapa apresenta o que conferir/fazer e o que acontece depois; a conclusão lista somente as etapas efetivamente apresentadas.
 

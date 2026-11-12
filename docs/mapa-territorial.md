@@ -21,16 +21,16 @@ As alterações prévias em `shared/kanban.mjs`, `src/TeamKanban.tsx` e `tests/k
 
 Reutilizados `GeoMap`, Leaflet, `heatLayer`, provider/configuração e política de tiles, cores do workflow, campos e estados dos filtros, bootstrap/catálogos, cliente API, GeoJSON e regras existentes de acesso à OS. A rota GeoJSON mantém suporte a bbox. Não houve mudança de state machine, permissões ou vínculo ocorrência → OS.
 
-| Campo | Origem |
-|---|---|
-| Identificação da OS | `orders.code` da OS ligada via `order_occurrences` |
-| Endereço | `occurrences.address` do ponto selecionado |
-| Início | `orders.started_at`, registrado ao iniciar execução |
-| Atendimento | `orders.finished_at`, registrado ao enviar o serviço executado para validação; na ausência, `orders.scheduled_at` |
-| Finalização | `orders.completed_at`, registrado na validação; na ausência, `orders.due_at` como previsão explicitamente identificada |
-| Equipe | Catálogo de equipes pelo `orders.team_id`; omitida se ausente |
-| Antes | Evidência de imagem da OS com estágio `antes`, do ciclo vigente |
-| Depois | Evidência de imagem da OS com estágio `depois`, posterior ao início/reabertura/reprogramação vigentes |
+| Campo               | Origem                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Identificação da OS | `orders.code` da OS ligada via `order_occurrences`                                                                     |
+| Endereço            | `occurrences.address` do ponto selecionado                                                                             |
+| Início              | `orders.started_at`, registrado ao iniciar execução                                                                    |
+| Atendimento         | `orders.finished_at`, registrado ao enviar o serviço executado para validação; na ausência, `orders.scheduled_at`      |
+| Finalização         | `orders.completed_at`, registrado na validação; na ausência, `orders.due_at` como previsão explicitamente identificada |
+| Equipe              | Catálogo de equipes pelo `orders.team_id`; omitida se ausente                                                          |
+| Antes               | Evidência de imagem da OS com estágio `antes`, do ciclo vigente                                                        |
+| Depois              | Evidência de imagem da OS com estágio `depois`, posterior ao início/reabertura/reprogramação vigentes                  |
 
 Não se usa data de cadastro como execução. Datas ausentes aparecem como travessão. Sem OS disponível, o card identifica a ocorrência e informa a ausência de OS. Havendo múltiplas OS acessíveis, são exibidas separadamente, sem escolher uma arbitrariamente. As fotos são selecionadas pela evidência mais recente de cada estágio; fotos de registro da ocorrência não são tratadas como evidência de execução da OS.
 

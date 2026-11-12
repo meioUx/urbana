@@ -20,27 +20,27 @@ Esta composição usa SQLite persistente em uma única instância. Não escale p
 
 ## Ambientes e variáveis
 
-| Ambiente | Execução | Persistência |
-| --- | --- | --- |
-| Desenvolvimento | Node 24+, `npm.cmd ci`, `npm.cmd run dev` | SQLite local por padrão, Vite em middleware |
-| Testes | `npm.cmd test`; build e scripts de navegador | Bancos temporários isolados; não usar dados municipais |
-| Piloto simples | `npm.cmd run build` / `npm.cmd start` ou Compose | SQLite persistente em instância única |
-| Produção municipal recomendada | Imagem Node 24, proxy HTTPS, serviço dedicado | PostgreSQL/PostGIS homologado e anexos persistentes; abstração de object storage disponível por injeção; serviço externo não homologado |
+| Ambiente                       | Execução                                         | Persistência                                                                                                                            |
+| ------------------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Desenvolvimento                | Node 24+, `npm.cmd ci`, `npm.cmd run dev`        | SQLite local por padrão, Vite em middleware                                                                                             |
+| Testes                         | `npm.cmd test`; build e scripts de navegador     | Bancos temporários isolados; não usar dados municipais                                                                                  |
+| Piloto simples                 | `npm.cmd run build` / `npm.cmd start` ou Compose | SQLite persistente em instância única                                                                                                   |
+| Produção municipal recomendada | Imagem Node 24, proxy HTTPS, serviço dedicado    | PostgreSQL/PostGIS homologado e anexos persistentes; abstração de object storage disponível por injeção; serviço externo não homologado |
 
 No Linux, use `npm` nos mesmos comandos. `.env` é carregado na inicialização pelo Node se existir; no Compose, a substituição de `.env` só passa ao container as variáveis listadas no bloco `environment`. Mudar o arquivo não altera automaticamente o ambiente de um container já criado.
 
-| Variável | Padrão / efeito |
-| --- | --- |
-| `PORT` | 3000 |
-| `HOST` | 127.0.0.1 local; 0.0.0.0 no container |
-| `DATA_DIR` | `data` local; `/app/data` na imagem; banco/arquivos |
-| `DATABASE_URL` | Ausente = SQLite; URL PostgreSQL quando definida |
-| `ADMIN_PASSWORD` | Senha do seed na primeira inicialização, mínimo 10; não troca senha de banco já inicializado |
-| `DEMO_DATA` | Somente `false` desativa contas/ocorrências demonstrativas; Compose fixa `false` |
-| `SECURE_COOKIE` | Somente `true` habilita cookie Secure; Compose fixa `true` |
-| `URBANA_DOMAIN` | Nome DNS sem protocolo/caminho; usado pelo Caddy |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Trio necessário ao push; subject de suporte real |
-| `NODE_ENV` | `production` na imagem; modo estático é ativado por `--production` |
+| Variável                                                 | Padrão / efeito                                                                              |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `PORT`                                                   | 3000                                                                                         |
+| `HOST`                                                   | 127.0.0.1 local; 0.0.0.0 no container                                                        |
+| `DATA_DIR`                                               | `data` local; `/app/data` na imagem; banco/arquivos                                          |
+| `DATABASE_URL`                                           | Ausente = SQLite; URL PostgreSQL quando definida                                             |
+| `ADMIN_PASSWORD`                                         | Senha do seed na primeira inicialização, mínimo 10; não troca senha de banco já inicializado |
+| `DEMO_DATA`                                              | Somente `false` desativa contas/ocorrências demonstrativas; Compose fixa `false`             |
+| `SECURE_COOKIE`                                          | Somente `true` habilita cookie Secure; Compose fixa `true`                                   |
+| `URBANA_DOMAIN`                                          | Nome DNS sem protocolo/caminho; usado pelo Caddy                                             |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Trio necessário ao push; subject de suporte real                                             |
+| `NODE_ENV`                                               | `production` na imagem; modo estático é ativado por `--production`                           |
 
 Use `.env.example` como referência, sem versionar segredos. Seed só executa se não houver usuários: mudar `DEMO_DATA` não remove demonstrações de banco existente. Ao desativar demo num banco novo, `ADMIN_PASSWORD` é obrigatório; cria administrador inicial e catálogos. Criar contas reais depois. Alteração de senha/recovery não possui CLI operacional entregue; não presumir que reiniciar com nova variável reseta usuários.
 
@@ -79,18 +79,18 @@ Push exige as três variáveis VAPID, HTTPS, permissão por aparelho e navegador
 
 `docker compose up -d --build` substitui a aplicação e mantém os volumes. Não use `docker compose down -v` em uma instalação com registros que devem ser preservados. Faça backup consistente antes da atualização, registre revisão Git/imagem/configuração e confira migrations aplicáveis. Versões 1–10 são executadas/verificadas automaticamente na inicialização.
 
-| Versão | Conteúdo vigente |
-| --- | --- |
-| 1 | Esquema base em `server/schema.sql`, execução idempotente e registro em `schema_migrations` |
-| 2 | `action_plans`, `action_plan_occurrences` e índice de vínculos |
-| 3 | `client_requests`, `push_subscriptions`, `push_jobs` |
-| 4 | `invoices`, `invoice_items`, `inventory_movements` e índices |
-| 5 | version em occurrences/orders/action_plans |
-| 6 | Índices de paginação/filtros/auditoria/relacionamentos/consumo |
-| 7 | Índices de paginação e FKs dos movimentos de estoque |
-| 8 | Inicialização das liberações individuais de módulos |
-| 9 | Progresso versionado e eventos internos de onboarding |
-| 10 | Coluna `evidence.captured_at` (hora de captura em campo; idempotente) |
+| Versão | Conteúdo vigente                                                                            |
+| ------ | ------------------------------------------------------------------------------------------- |
+| 1      | Esquema base em `server/schema.sql`, execução idempotente e registro em `schema_migrations` |
+| 2      | `action_plans`, `action_plan_occurrences` e índice de vínculos                              |
+| 3      | `client_requests`, `push_subscriptions`, `push_jobs`                                        |
+| 4      | `invoices`, `invoice_items`, `inventory_movements` e índices                                |
+| 5      | version em occurrences/orders/action_plans                                                  |
+| 6      | Índices de paginação/filtros/auditoria/relacionamentos/consumo                              |
+| 7      | Índices de paginação e FKs dos movimentos de estoque                                        |
+| 8      | Inicialização das liberações individuais de módulos                                         |
+| 9      | Progresso versionado e eventos internos de onboarding                                       |
+| 10     | Coluna `evidence.captured_at` (hora de captura em campo; idempotente)                       |
 
 Versões 2–8 e 10 são transacionais e registradas após sucesso. A versão 9 registra a criação idempotente das tabelas de onboarding no esquema base. Implementação em `server/db.js`; não há diretório `migrations/`, CLI separado ou downgrade automatizado. Não editar migrations antigas para futuras mudanças; adicionar versão aditiva e verificar em instalação existente. Scripts em `scripts/` que reescrevem permissões/perfis não fazem parte deste procedimento nem de migrations ativas.
 
@@ -173,7 +173,6 @@ Para executar homologação posteriormente, configure URBANA_POSTGRES_TEST_URL p
 O build gera chunks dinâmicos. Publique todo dist/ da mesma revisão; mantenha assets antigos acessíveis durante atualização de sessões abertas ou peça recarregamento antes de operar. Os nomes têm hash; não misture index/assets de revisões diferentes. Code splitting não adiciona cache offline de módulos, OS ou sincronização.
 
 Há limite de quatro uploads concorrentes por aplicação (maxConcurrentUploads na fábrica), compartilhado entre evidências e PDFs. Excesso retorna 429 UPLOAD_BUSY e pode ser reenviado; limite e política do proxy devem ser dimensionados em homologação.
-
 
 ## Ambiente local com PostgreSQL/PostGIS (desenvolvimento e homologação)
 

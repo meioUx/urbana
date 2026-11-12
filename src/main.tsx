@@ -1,12 +1,25 @@
 import OnboardingEntry from "./onboarding/OnboardingEntry";
-import {isMasterUser,canPerformAction,moduleCatalog,defaultModules,canRoleAccessModule,hasModuleAccess,moduleForPath,landingModule} from "../shared/authorization.mjs";
+import {
+  isMasterUser,
+  canPerformAction,
+  moduleCatalog,
+  defaultModules,
+  canRoleAccessModule,
+  hasModuleAccess,
+  moduleForPath,
+  landingModule,
+} from "../shared/authorization.mjs";
 import { lazyModule } from "./shared/lazyModule";
 import { colors, labels } from "./shared/workflow";
 import TerritorialView from "./modules/map/TerritorialView";
 const GeoMap = lazyModule(() => import("./modules/map/GeoMap"));
-const AuditPanel = lazyModule(() => import("./modules/administration/AuditPanel"));
+const AuditPanel = lazyModule(
+  () => import("./modules/administration/AuditPanel"),
+);
 const PlanningPanel = lazyModule(() => import("./PlanningPanel"));
-const PlanningTeamCapacity = lazyModule(() => import("./PlanningPanel").then(m => ({default:m.PlanningTeamCapacity})));
+const PlanningTeamCapacity = lazyModule(() =>
+  import("./PlanningPanel").then((m) => ({ default: m.PlanningTeamCapacity })),
+);
 import WorkflowGuide from "./WorkflowGuide";
 import DispatchContext from "./DispatchContext";
 const TeamKanban = lazyModule(() => import("./TeamKanban"));
@@ -62,7 +75,11 @@ type Boot = {
   roles: string[];
   priorities: string[];
   operators: Row[];
-  kanban: { revision: number; limits: Record<string, number>; order: Record<string, string[]> };
+  kanban: {
+    revision: number;
+    limits: Record<string, number>;
+    order: Record<string, string[]>;
+  };
 };
 const fmt = (d: string) =>
   d
@@ -83,22 +100,40 @@ async function api(path: string, method = "GET", body?: any) {
     res = await fetch(`/api${path}`, {
       method,
       signal: controller.signal,
-    headers:
-      body instanceof FormData
-        ? {}
-        : body
-          ? { "Content-Type": "application/json" }
-          : {},
+      headers:
+        body instanceof FormData
+          ? {}
+          : body
+            ? { "Content-Type": "application/json" }
+            : {},
       body:
-        body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
+        body instanceof FormData
+          ? body
+          : body
+            ? JSON.stringify(body)
+            : undefined,
     });
   } catch (error: any) {
-    if (error?.name === "AbortError") throw new Error(method === "GET" ? "A resposta demorou demais. Tente atualizar novamente." : "O servidor não confirmou a operação a tempo. Confira o registro antes de repetir o envio.");
-    throw new Error(method === "GET" ? "Não foi possível comunicar com o servidor. Verifique a conexão e tente novamente." : "A conexão foi interrompida. Confira se a operação foi registrada antes de repetir o envio.");
+    if (error?.name === "AbortError")
+      throw new Error(
+        method === "GET"
+          ? "A resposta demorou demais. Tente atualizar novamente."
+          : "O servidor não confirmou a operação a tempo. Confira o registro antes de repetir o envio.",
+      );
+    throw new Error(
+      method === "GET"
+        ? "Não foi possível comunicar com o servidor. Verifique a conexão e tente novamente."
+        : "A conexão foi interrompida. Confira se a operação foi registrada antes de repetir o envio.",
+    );
   } finally {
     window.clearTimeout(timeout);
   }
-  const data = await res.json().catch(() => ({ error: "O servidor retornou uma resposta inesperada. Confira o registro e atualize a página." }));
+  const data = await res
+    .json()
+    .catch(() => ({
+      error:
+        "O servidor retornou uma resposta inesperada. Confira o registro e atualize a página.",
+    }));
   if (res.ok && data.error) throw new Error(data.error);
   if (!res.ok)
     throw Object.assign(new Error(data.error), {
@@ -220,10 +255,12 @@ function Modal({
     </div>
   );
 }
-function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
+function Workspace({ onBoot }: { onBoot: (boot: Boot | null) => void }) {
   const [boot, setBoot] = useState<Boot | null>(null),
     [loading, setLoading] = useState(true),
-    [page, setPage] = useState(moduleForPath(window.location.pathname) || "dashboard"),
+    [page, setPage] = useState(
+      moduleForPath(window.location.pathname) || "dashboard",
+    ),
     [mapOnly, setMapOnly] = useState(window.location.pathname === "/mapa"),
     [fieldMode, setFieldMode] = useState(window.location.pathname === "/campo"),
     [rows, setRows] = useState<Row[]>([]),
@@ -251,51 +288,136 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
     [syncError, setSyncError] = useState(""),
     [lastSync, setLastSync] = useState<string>(""),
     [syncing, setSyncing] = useState(false);
-  useEffect(()=>onBoot(boot),[boot,onBoot]);
-  const guideRequest=useRef(0);
-  useEffect(()=>{
-    const prepare=async(event:Event)=>{
-      const step=(event as CustomEvent).detail?.step;
-      if(!boot||!step||!hasModuleAccess(boot.user,step.module))return;
-      const generation=++guideRequest.current;
-      if(step.page==='field')return;
-      setMobile(false);setDetail(null);setModal(null);setMapOnly(!!step.fullMap);setFieldMode(false);setPage(step.page);
-      setQ('');setStatus(step.filter||'');setPriority('');setTeam('');setDeadline('');setCategory('');setNeighborhood('');setFrom('');setTo('');
-      history.replaceState(null,'',step.fullMap?'/mapa':step.path);
-      if(step.adminTab)setAdminTab(step.adminTab);
-      if(step.guideMode==='new-user'&&boot.user.role==='Administrador'&&hasModuleAccess(boot.user,'admin'))setModal({type:'user'});
-      if(step.detail){
-        const candidates=step.detail==='order'?orders:rows;
-        const record=candidates.find(r=>!step.states||step.states.includes(r.status));
-        if(record)try{
-          const data=await api('/'+(step.detail==='order'?'ordens-servico':'ocorrencias')+'/'+record.id);
-          if(generation===guideRequest.current)setDetail({type:step.detail,...data,initialTab:step.detailTab||'overview',guideKey:step.id,guideMode:step.guideMode});
-        }catch{/* Keep the real empty/list area available for educational guidance. */}
+  useEffect(() => onBoot(boot), [boot, onBoot]);
+  const guideRequest = useRef(0);
+  useEffect(() => {
+    const prepare = async (event: Event) => {
+      const step = (event as CustomEvent).detail?.step;
+      if (!boot || !step || !hasModuleAccess(boot.user, step.module)) return;
+      const generation = ++guideRequest.current;
+      if (step.page === "field") return;
+      setMobile(false);
+      setDetail(null);
+      setModal(null);
+      setMapOnly(!!step.fullMap);
+      setFieldMode(false);
+      setPage(step.page);
+      setQ("");
+      setStatus(step.filter || "");
+      setPriority("");
+      setTeam("");
+      setDeadline("");
+      setCategory("");
+      setNeighborhood("");
+      setFrom("");
+      setTo("");
+      history.replaceState(null, "", step.fullMap ? "/mapa" : step.path);
+      if (step.adminTab) setAdminTab(step.adminTab);
+      if (
+        step.guideMode === "new-user" &&
+        boot.user.role === "Administrador" &&
+        hasModuleAccess(boot.user, "admin")
+      )
+        setModal({ type: "user" });
+      if (step.detail) {
+        const candidates = step.detail === "order" ? orders : rows;
+        const record = candidates.find(
+          (r) => !step.states || step.states.includes(r.status),
+        );
+        if (record)
+          try {
+            const data = await api(
+              "/" +
+                (step.detail === "order" ? "ordens-servico" : "ocorrencias") +
+                "/" +
+                record.id,
+            );
+            if (generation === guideRequest.current)
+              setDetail({
+                type: step.detail,
+                ...data,
+                initialTab: step.detailTab || "overview",
+                guideKey: step.id,
+                guideMode: step.guideMode,
+              });
+          } catch {
+            /* Keep the real empty/list area available for educational guidance. */
+          }
       }
     };
-    const end=()=>{guideRequest.current++;setModal(null);};
-    window.addEventListener('urbana:onboarding-navigate',prepare);window.addEventListener('urbana:onboarding-end',end);
-    return ()=>{window.removeEventListener('urbana:onboarding-navigate',prepare);window.removeEventListener('urbana:onboarding-end',end);};
-  },[boot,rows,orders]);
+    const end = () => {
+      guideRequest.current++;
+      setModal(null);
+    };
+    window.addEventListener("urbana:onboarding-navigate", prepare);
+    window.addEventListener("urbana:onboarding-end", end);
+    return () => {
+      window.removeEventListener("urbana:onboarding-navigate", prepare);
+      window.removeEventListener("urbana:onboarding-end", end);
+    };
+  }, [boot, rows, orders]);
   const pagedScope = ["occurrences", "triagem", "orders"].includes(page);
-  const [listPage, setListPage] = useState<any>({items:[],has_more:false,next_cursor:null});
+  const [listPage, setListPage] = useState<any>({
+    items: [],
+    has_more: false,
+    next_cursor: null,
+  });
   const [listCursor, setListCursor] = useState("");
   const [listBack, setListBack] = useState<string[]>([]);
   const [listBusy, setListBusy] = useState(false);
   const [listError, setListError] = useState("");
-  const listKey = JSON.stringify([page,q,status,priority,category,team,deadline,from,to,neighborhood]);
-  useEffect(() => {setListCursor("");setListBack([]);},[listKey]);
+  const listKey = JSON.stringify([
+    page,
+    q,
+    status,
+    priority,
+    category,
+    team,
+    deadline,
+    from,
+    to,
+    neighborhood,
+  ]);
+  useEffect(() => {
+    setListCursor("");
+    setListBack([]);
+  }, [listKey]);
   useEffect(() => {
     if (!boot || !pagedScope) return;
     let cancelled = false;
     const timer = window.setTimeout(async () => {
-      setListBusy(true);setListError("");
-      const params = new URLSearchParams({limit:"50"});
-      for (const [key,value] of Object.entries({q,status:status || (page === "triagem" ? "IDENTIFICADA,EM_TRIAGEM" : ""),priority,category_id:page === "orders" ? "" : category,team_id:page === "orders" ? team : "",deadline:page === "orders" ? deadline : "",from,to,neighborhood,cursor:listCursor})) if(value) params.set(key,value);
-      try {const result = await api(`/${page === "orders" ? "ordens-servico" : "ocorrencias"}?${params}`);if(!cancelled)setListPage({...result,key:listKey});} catch(e:any) {if(!cancelled)setListError(e.message);} finally {if(!cancelled)setListBusy(false);}
-    },200);
-    return () => {cancelled=true;window.clearTimeout(timer);};
-  },[boot?.user.id,pagedScope,listKey,listCursor,lastSync]);
+      setListBusy(true);
+      setListError("");
+      const params = new URLSearchParams({ limit: "50" });
+      for (const [key, value] of Object.entries({
+        q,
+        status: status || (page === "triagem" ? "IDENTIFICADA,EM_TRIAGEM" : ""),
+        priority,
+        category_id: page === "orders" ? "" : category,
+        team_id: page === "orders" ? team : "",
+        deadline: page === "orders" ? deadline : "",
+        from,
+        to,
+        neighborhood,
+        cursor: listCursor,
+      }))
+        if (value) params.set(key, value);
+      try {
+        const result = await api(
+          `/${page === "orders" ? "ordens-servico" : "ocorrencias"}?${params}`,
+        );
+        if (!cancelled) setListPage({ ...result, key: listKey });
+      } catch (e: any) {
+        if (!cancelled) setListError(e.message);
+      } finally {
+        if (!cancelled) setListBusy(false);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [boot?.user.id, pagedScope, listKey, listCursor, lastSync]);
   const [mapRows, setMapRows] = useState<Row[]>([]);
   const [mapNeighborhoods, setMapNeighborhoods] = useState<string[]>([]);
   useEffect(() => {
@@ -303,44 +425,141 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams();
-      for (const [key,value] of Object.entries({q,status,priority,category_id:category,neighborhood,from,to})) if (value) params.set(key,value);
-      api(`/mapa/ocorrencias?${params}`).then(data => {
-        if (!cancelled) { const next = data.features.map((f: any) => f.properties);
-          setMapRows(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-          setMapNeighborhoods(previous => [...new Set([...previous, ...next.map((r: Row) => r.neighborhood).filter(Boolean)])].sort());
-          setSyncError(""); }
-      }).catch(e => { if (!cancelled) setSyncError(e.message); });
-    },200);
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [boot?.user.id,page,q,status,priority,category,neighborhood,from,to,lastSync]);
+      for (const [key, value] of Object.entries({
+        q,
+        status,
+        priority,
+        category_id: category,
+        neighborhood,
+        from,
+        to,
+      }))
+        if (value) params.set(key, value);
+      api(`/mapa/ocorrencias?${params}`)
+        .then((data) => {
+          if (!cancelled) {
+            const next = data.features.map((f: any) => f.properties);
+            setMapRows((previous) =>
+              JSON.stringify(previous) === JSON.stringify(next)
+                ? previous
+                : next,
+            );
+            setMapNeighborhoods((previous) =>
+              [
+                ...new Set([
+                  ...previous,
+                  ...next.map((r: Row) => r.neighborhood).filter(Boolean),
+                ]),
+              ].sort(),
+            );
+            setSyncError("");
+          }
+        })
+        .catch((e) => {
+          if (!cancelled) setSyncError(e.message);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    boot?.user.id,
+    page,
+    q,
+    status,
+    priority,
+    category,
+    neighborhood,
+    from,
+    to,
+    lastSync,
+  ]);
   useEffect(() => {
-    const pop = () => { setMapOnly(window.location.pathname === "/mapa"); setFieldMode(window.location.pathname === "/campo"); setPage(moduleForPath(window.location.pathname) || "dashboard"); };
-    window.addEventListener("popstate",pop);
-    return () => window.removeEventListener("popstate",pop);
+    const pop = () => {
+      setMapOnly(window.location.pathname === "/mapa");
+      setFieldMode(window.location.pathname === "/campo");
+      setPage(moduleForPath(window.location.pathname) || "dashboard");
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
   }, []);
-  const pageControls = <div className="form-actions" aria-label="Paginação"><button className="button secondary" disabled={listBusy || !listBack.length} onClick={() => {setListCursor(listBack.at(-1) || "");setListBack(listBack.slice(0,-1));}}>Anterior</button><span role="status">Página {listBack.length+1} · {listBusy ? "Atualizando..." : listPage.items.length+" registros"}</span><button className="button secondary" disabled={listBusy || !listPage.has_more} onClick={() => {setListBack([...listBack,listCursor]);setListCursor(listPage.next_cursor);}}>Próxima</button></div>;
+  const pageControls = (
+    <div className="form-actions" aria-label="Paginação">
+      <button
+        className="button secondary"
+        disabled={listBusy || !listBack.length}
+        onClick={() => {
+          setListCursor(listBack.at(-1) || "");
+          setListBack(listBack.slice(0, -1));
+        }}
+      >
+        Anterior
+      </button>
+      <span role="status">
+        Página {listBack.length + 1} ·{" "}
+        {listBusy ? "Atualizando..." : listPage.items.length + " registros"}
+      </span>
+      <button
+        className="button secondary"
+        disabled={listBusy || !listPage.has_more}
+        onClick={() => {
+          setListBack([...listBack, listCursor]);
+          setListCursor(listPage.next_cursor);
+        }}
+      >
+        Próxima
+      </button>
+    </div>
+  );
   const refresh = async () => {
     const b = await api("/bootstrap");
-    if (b.user.role === "Equipe de Campo" || window.location.pathname === "/mapa") {
-      if (b.user.role !== "Equipe de Campo") setLastSync(new Date().toISOString());
+    if (
+      b.user.role === "Equipe de Campo" ||
+      window.location.pathname === "/mapa"
+    ) {
+      if (b.user.role !== "Equipe de Campo")
+        setLastSync(new Date().toISOString());
       setBoot(b);
-      if(b.user.role==='Equipe de Campo' && window.location.pathname==='/')history.replaceState(null,'','/campo');
+      if (b.user.role === "Equipe de Campo" && window.location.pathname === "/")
+        history.replaceState(null, "", "/campo");
       return;
     }
-    const permitted=(modules:string[])=>modules.some(m=>hasModuleAccess(b.user,m));
-    const [r,o,d,p]=await Promise.all([
-      permitted(['occurrences','triagem','planning','kanban','orders','review','dashboard'])?api('/ocorrencias'):[],
-      permitted(['orders','planning','kanban','review','dashboard','sector-control'])?api('/ordens-servico'):[],
-      hasModuleAccess(b.user,'dashboard')?api('/dashboard'):null,
-      hasModuleAccess(b.user,'planning')?api('/planejamento'):null,
+    const permitted = (modules: string[]) =>
+      modules.some((m) => hasModuleAccess(b.user, m));
+    const [r, o, d, p] = await Promise.all([
+      permitted([
+        "occurrences",
+        "triagem",
+        "planning",
+        "kanban",
+        "orders",
+        "review",
+        "dashboard",
+      ])
+        ? api("/ocorrencias")
+        : [],
+      permitted([
+        "orders",
+        "planning",
+        "kanban",
+        "review",
+        "dashboard",
+        "sector-control",
+      ])
+        ? api("/ordens-servico")
+        : [],
+      hasModuleAccess(b.user, "dashboard") ? api("/dashboard") : null,
+      hasModuleAccess(b.user, "planning") ? api("/planejamento") : null,
     ]);
-    if (!boot && window.location.pathname==='/') setPage(landingModule(b.user)||'none');
+    if (!boot && window.location.pathname === "/")
+      setPage(landingModule(b.user) || "none");
     setBoot(b);
     setRows(r);
     setOrders(o);
     setDashboard(d);
     setPlanning(p);
-    if (hasModuleAccess(b.user,"admin")) {
+    if (hasModuleAccess(b.user, "admin")) {
       setUsers(await api("/users"));
     }
     setLastSync(new Date().toISOString());
@@ -356,7 +575,14 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
   useEffect(() => {
     if (!boot || boot.user.role === "Equipe de Campo" || fieldMode) return;
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") refresh().catch((e) => setSyncError(e.status === 401 ? "Sua sessão expirou. Entre novamente para continuar." : "A atualização falhou. Os dados exibidos podem estar desatualizados."));
+      if (document.visibilityState === "visible")
+        refresh().catch((e) =>
+          setSyncError(
+            e.status === 401
+              ? "Sua sessão expirou. Entre novamente para continuar."
+              : "A atualização falhou. Os dados exibidos podem estar desatualizados.",
+          ),
+        );
     }, 15000);
     return () => clearInterval(timer);
   }, [boot?.user.id, fieldMode]);
@@ -365,7 +591,19 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
     const timer = setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
-  const can=(action:string)=>!!boot && canPerformAction(boot.user,action) && ({create:['occurrences','field'],classify:['triagem'],schedule:['orders','planning','materials','sector-control'],execute:['field'],validate:['review'],admin:['admin']} as Record<string,string[]>)[action]?.some(m=>hasModuleAccess(boot.user,m));
+  const can = (action: string) =>
+    !!boot &&
+    canPerformAction(boot.user, action) &&
+    (
+      {
+        create: ["occurrences", "field"],
+        classify: ["triagem"],
+        schedule: ["orders", "planning", "materials", "sector-control"],
+        execute: ["field"],
+        validate: ["review"],
+        admin: ["admin"],
+      } as Record<string, string[]>
+    )[action]?.some((m) => hasModuleAccess(boot.user, m));
   const catalogs = (kind: string) =>
     boot?.catalogs.filter((c) => c.kind === kind) || [];
   const name = (id: string) =>
@@ -379,14 +617,24 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
     try {
       await fn();
       setToast(message);
-      try { await refresh(); } catch { setSyncError("A operação foi salva, mas a atualização falhou. Atualize os dados antes de continuar."); }
+      try {
+        await refresh();
+      } catch {
+        setSyncError(
+          "A operação foi salva, mas a atualização falhou. Atualize os dados antes de continuar.",
+        );
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
   };
-  const openDetail = async (type: string, id: string, initialTab = "overview") => {
+  const openDetail = async (
+    type: string,
+    id: string,
+    initialTab = "overview",
+  ) => {
     setError("");
     try {
       setDetail({
@@ -406,8 +654,12 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
       history.replaceState(null, "", "/campo");
       return;
     }
-    if(!boot || !hasModuleAccess(boot.user,value))return;
-    history.pushState(null,"",moduleCatalog.find(m=>m.key===value)?.path||"/");
+    if (!boot || !hasModuleAccess(boot.user, value)) return;
+    history.pushState(
+      null,
+      "",
+      moduleCatalog.find((m) => m.key === value)?.path || "/",
+    );
     setPage(value);
     setQ("");
     setStatus("");
@@ -421,41 +673,55 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
     setMobile(false);
     setDetail(null);
   };
-  const filtered: Row[] = page === "map" ? mapRows : pagedScope && page !== "orders" ? (listPage.key === listKey ? listPage.items : []) : rows.filter(
-    (r) =>
-      (!q ||
-        [r.code, r.address, r.neighborhood, r.description].some((x) =>
-          x?.toLowerCase().includes(q.toLowerCase()),
-        )) &&
-      (!status || r.status === status) &&
-      (!priority || r.priority === priority) &&
-      (!category || r.category_id === category) &&
-      (!neighborhood || r.neighborhood === neighborhood) &&
-      (!from || r.created_at.slice(0, 10) >= from) &&
-      (!to || r.created_at.slice(0, 10) <= to) &&
-      (page !== "triagem" || ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)),
-  );
-  const filteredOrders: Row[] = page === "orders" ? (listPage.key === listKey ? listPage.items : []) : orders.filter(
-    (r) =>
-      (!q ||
-        [r.code, name(r.team_id), r.responsible].some((x) =>
-          x?.toLowerCase().includes(q.toLowerCase()),
-        )) &&
-      (!status || r.status === status) &&
-      (!priority || r.priority === priority) &&
-      (!team || r.team_id === team) &&
-      (!deadline ||
-        (() => {
-          if (["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(r.status)) return false;
-          const remaining = Date.parse(r.due_at) - Date.now();
-          if (deadline === "late") return remaining < 0;
-          if (deadline === "soon")
-            return remaining >= 0 && remaining <= 86400000;
-          return remaining > 86400000;
-        })()) &&
-      (!from || r.created_at.slice(0, 10) >= from) &&
-      (!to || r.created_at.slice(0, 10) <= to),
-  );
+  const filtered: Row[] =
+    page === "map"
+      ? mapRows
+      : pagedScope && page !== "orders"
+        ? listPage.key === listKey
+          ? listPage.items
+          : []
+        : rows.filter(
+            (r) =>
+              (!q ||
+                [r.code, r.address, r.neighborhood, r.description].some((x) =>
+                  x?.toLowerCase().includes(q.toLowerCase()),
+                )) &&
+              (!status || r.status === status) &&
+              (!priority || r.priority === priority) &&
+              (!category || r.category_id === category) &&
+              (!neighborhood || r.neighborhood === neighborhood) &&
+              (!from || r.created_at.slice(0, 10) >= from) &&
+              (!to || r.created_at.slice(0, 10) <= to) &&
+              (page !== "triagem" ||
+                ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)),
+          );
+  const filteredOrders: Row[] =
+    page === "orders"
+      ? listPage.key === listKey
+        ? listPage.items
+        : []
+      : orders.filter(
+          (r) =>
+            (!q ||
+              [r.code, name(r.team_id), r.responsible].some((x) =>
+                x?.toLowerCase().includes(q.toLowerCase()),
+              )) &&
+            (!status || r.status === status) &&
+            (!priority || r.priority === priority) &&
+            (!team || r.team_id === team) &&
+            (!deadline ||
+              (() => {
+                if (["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(r.status))
+                  return false;
+                const remaining = Date.parse(r.due_at) - Date.now();
+                if (deadline === "late") return remaining < 0;
+                if (deadline === "soon")
+                  return remaining >= 0 && remaining <= 86400000;
+                return remaining > 86400000;
+              })()) &&
+            (!from || r.created_at.slice(0, 10) >= from) &&
+            (!to || r.created_at.slice(0, 10) <= to),
+        );
   const exportCsv = () => {
     const data = page === "orders" ? filteredOrders : filtered;
     const columns =
@@ -509,13 +775,61 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
         }}
       />
     );
-  const available=moduleCatalog.filter(m=>hasModuleAccess(boot.user,m.key));
-  const accessNotice=(message:string)=><div className="login-page"><section className="login-card"><h1>{message}</h1><p>{message === "Sem módulos disponíveis" ? "Seu usuário não possui módulos liberados no momento. Entre em contato com o administrador do sistema." : "Seu usuário não possui acesso a este ambiente. Entre em contato com o administrador do sistema."}</p><button className="button secondary" onClick={()=>{const first=landingModule(boot.user);setPage(first||'none');setFieldMode(first==='field');history.replaceState(null,'',moduleCatalog.find(m=>m.key===first)?.path||'/');}}>Ir para meus módulos</button><button className="button secondary" onClick={async()=>{await api('/auth/logout','POST');setBoot(null);history.replaceState(null,'','/');}}>Sair</button></section></div>;
-  if(!available.length)return accessNotice('Sem módulos disponíveis');
-  const requestedModule=moduleForPath(window.location.pathname);
-  if(window.location.pathname!=='/' && requestedModule && !hasModuleAccess(boot.user,requestedModule))return accessNotice('Acesso negado');
-  if(fieldMode && !hasModuleAccess(boot.user,'field'))return accessNotice('Acesso negado');
-  if(boot.user.role==='Equipe de Campo' && !hasModuleAccess(boot.user,'field'))return accessNotice('Sem módulos disponíveis');
+  const available = moduleCatalog.filter((m) =>
+    hasModuleAccess(boot.user, m.key),
+  );
+  const accessNotice = (message: string) => (
+    <div className="login-page">
+      <section className="login-card">
+        <h1>{message}</h1>
+        <p>
+          {message === "Sem módulos disponíveis"
+            ? "Seu usuário não possui módulos liberados no momento. Entre em contato com o administrador do sistema."
+            : "Seu usuário não possui acesso a este ambiente. Entre em contato com o administrador do sistema."}
+        </p>
+        <button
+          className="button secondary"
+          onClick={() => {
+            const first = landingModule(boot.user);
+            setPage(first || "none");
+            setFieldMode(first === "field");
+            history.replaceState(
+              null,
+              "",
+              moduleCatalog.find((m) => m.key === first)?.path || "/",
+            );
+          }}
+        >
+          Ir para meus módulos
+        </button>
+        <button
+          className="button secondary"
+          onClick={async () => {
+            await api("/auth/logout", "POST");
+            setBoot(null);
+            history.replaceState(null, "", "/");
+          }}
+        >
+          Sair
+        </button>
+      </section>
+    </div>
+  );
+  if (!available.length) return accessNotice("Sem módulos disponíveis");
+  const requestedModule = moduleForPath(window.location.pathname);
+  if (
+    window.location.pathname !== "/" &&
+    requestedModule &&
+    !hasModuleAccess(boot.user, requestedModule)
+  )
+    return accessNotice("Acesso negado");
+  if (fieldMode && !hasModuleAccess(boot.user, "field"))
+    return accessNotice("Acesso negado");
+  if (
+    boot.user.role === "Equipe de Campo" &&
+    !hasModuleAccess(boot.user, "field")
+  )
+    return accessNotice("Sem módulos disponíveis");
   if (boot.user.role === "Equipe de Campo" || fieldMode)
     return (
       <Operator
@@ -557,8 +871,8 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
         ]
       : []),
   ];
-  const nav=allNav.filter(([key])=>hasModuleAccess(boot.user,key));
-  if(!hasModuleAccess(boot.user,page))return accessNotice('Acesso negado');
+  const nav = allNav.filter(([key]) => hasModuleAccess(boot.user, key));
+  if (!hasModuleAccess(boot.user, page)) return accessNotice("Acesso negado");
   const title = nav.find((n) => n[0] === page)?.[1] || "Visão geral";
   const filters = (
     <div className="filters" data-guide="filters">
@@ -644,9 +958,19 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
           onChange={(e) => setNeighborhood(e.target.value)}
         >
           <option value="">Todos os bairros</option>
-          {[...new Set([...mapNeighborhoods, ...rows.map((r) => r.neighborhood), neighborhood].filter(Boolean))].sort().map((n) => (
-            <option key={n}>{n}</option>
-          ))}
+          {[
+            ...new Set(
+              [
+                ...mapNeighborhoods,
+                ...rows.map((r) => r.neighborhood),
+                neighborhood,
+              ].filter(Boolean),
+            ),
+          ]
+            .sort()
+            .map((n) => (
+              <option key={n}>{n}</option>
+            ))}
         </select>
       )}
       <input
@@ -693,11 +1017,48 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
       )}
     </div>
   );
-  const enterMap = () => { history.pushState(null,"","/mapa"); setMapOnly(true); };
-  const leaveMap = () => { history.pushState(null,"","/"); setMapOnly(false); refresh().catch(e => setSyncError(e.message)); };
-  if (mapOnly) return <TerritorialView filters={filters} activeCount={[q,status,priority,category,neighborhood,from,to].filter(Boolean).length} onClear={() => {setQ("");setStatus("");setPriority("");setCategory("");setNeighborhood("");setFrom("");setTo("");}} onBack={leaveMap} error={syncError}>
-    <GeoMap rows={filtered} onSelect={r => { leaveMap(); openDetail("occurrence", r.id); }} heatmap large loadSummary={id => api(`/mapa/ocorrencias/${id}/resumo`)} />
-  </TerritorialView>;
+  const enterMap = () => {
+    history.pushState(null, "", "/mapa");
+    setMapOnly(true);
+  };
+  const leaveMap = () => {
+    history.pushState(null, "", "/");
+    setMapOnly(false);
+    refresh().catch((e) => setSyncError(e.message));
+  };
+  if (mapOnly)
+    return (
+      <TerritorialView
+        filters={filters}
+        activeCount={
+          [q, status, priority, category, neighborhood, from, to].filter(
+            Boolean,
+          ).length
+        }
+        onClear={() => {
+          setQ("");
+          setStatus("");
+          setPriority("");
+          setCategory("");
+          setNeighborhood("");
+          setFrom("");
+          setTo("");
+        }}
+        onBack={leaveMap}
+        error={syncError}
+      >
+        <GeoMap
+          rows={filtered}
+          onSelect={(r) => {
+            leaveMap();
+            openDetail("occurrence", r.id);
+          }}
+          heatmap
+          large
+          loadSummary={(id) => api(`/mapa/ocorrencias/${id}/resumo`)}
+        />
+      </TerritorialView>
+    );
   const occurrenceTable = (data: Row[], compact = false) => (
     <div className="table-scroll">
       <table>
@@ -718,7 +1079,10 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
               onClick={() => openDetail("occurrence", r.id)}
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail("occurrence", r.id); }
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openDetail("occurrence", r.id);
+                }
               }}
             >
               <td>
@@ -748,7 +1112,9 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
           ))}
         </tbody>
       </table>
-      {!data.length && <Empty text="Nenhuma ocorrência encontrada. As demandas registradas aparecerão aqui para consulta e análise; confira também os filtros." />}
+      {!data.length && (
+        <Empty text="Nenhuma ocorrência encontrada. As demandas registradas aparecerão aqui para consulta e análise; confira também os filtros." />
+      )}
     </div>
   );
   return (
@@ -770,7 +1136,7 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
           </span>
         </a>
         <p className="nav-caption">ÁREA DE TRABALHO</p>
-        <SidebarNav nav={nav} page={page} rows={rows} onNavigate={changePage}/>
+        <SidebarNav nav={nav} page={page} rows={rows} onNavigate={changePage} />
         <div className="sidebar-bottom">
           <div className="connection">
             <span />
@@ -837,7 +1203,10 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
           </div>
         </header>
         <main>
-          <div data-guide="page-heading" className={`page-heading ${page === "kanban" ? "kanban-heading" : ""}`}>
+          <div
+            data-guide="page-heading"
+            className={`page-heading ${page === "kanban" ? "kanban-heading" : ""}`}
+          >
             <div>
               <p className="eyebrow">
                 {page === "dashboard"
@@ -852,21 +1221,21 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                     ? "Ocorrências e serviços no território municipal."
                     : page === "kanban"
                       ? "Organize o fluxo e acompanhe as entregas das equipes."
-                    : page === "planning"
-                      ? "Compare intervenções, escolha o escopo e programe as equipes."
-                    : page === "orders"
-                      ? "Programação, execução e validação dos serviços."
-                      : page === "triagem"
-                        ? "Análise e encaminhamento das demandas recebidas."
-                        : page === "admin"
-                          ? "Estrutura, regras de atendimento e acesso."
-                          : page === "teams"
-                            ? "Equipes e distribuição das frentes de trabalho."
-                            : page === "materials"
-                              ? "Estoque, consumo e cadastro de materiais."
-                            : page === "equipment"
-                              ? "Equipamentos disponíveis para as frentes de trabalho."
-                              : "Registro e acompanhamento das demandas urbanas."}
+                      : page === "planning"
+                        ? "Compare intervenções, escolha o escopo e programe as equipes."
+                        : page === "orders"
+                          ? "Programação, execução e validação dos serviços."
+                          : page === "triagem"
+                            ? "Análise e encaminhamento das demandas recebidas."
+                            : page === "admin"
+                              ? "Estrutura, regras de atendimento e acesso."
+                              : page === "teams"
+                                ? "Equipes e distribuição das frentes de trabalho."
+                                : page === "materials"
+                                  ? "Estoque, consumo e cadastro de materiais."
+                                  : page === "equipment"
+                                    ? "Equipamentos disponíveis para as frentes de trabalho."
+                                    : "Registro e acompanhamento das demandas urbanas."}
               </p>
             </div>
             <div className="heading-actions">
@@ -877,9 +1246,7 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                 </button>
               )}
               {can("create") &&
-                ["map", "occurrences", "triagem", "kanban"].includes(
-                  page,
-                ) && (
+                ["map", "occurrences", "triagem", "kanban"].includes(page) && (
                   <button
                     className="button primary"
                     onClick={() => setModal({ type: "new" })}
@@ -888,20 +1255,26 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                     Nova ocorrência
                   </button>
                 )}
-              {can("admin") && ["teams", "materials", "equipment"].includes(page) && (
-                <button
-                  className="button primary"
-                  onClick={() =>
-                    setModal({
-                      type: "catalog",
-                      kind: page === "teams" ? "equipes" : page === "equipment" ? "equipamentos" : "materiais",
-                    })
-                  }
-                >
-                  <Plus size={18} />
-                  Novo cadastro
-                </button>
-              )}
+              {can("admin") &&
+                ["teams", "materials", "equipment"].includes(page) && (
+                  <button
+                    className="button primary"
+                    onClick={() =>
+                      setModal({
+                        type: "catalog",
+                        kind:
+                          page === "teams"
+                            ? "equipes"
+                            : page === "equipment"
+                              ? "equipamentos"
+                              : "materiais",
+                      })
+                    }
+                  >
+                    <Plus size={18} />
+                    Novo cadastro
+                  </button>
+                )}
             </div>
           </div>
           {error && (
@@ -917,13 +1290,93 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
               </button>
             </div>
           )}
-          {syncError && page !== "dashboard" && <div className="notice error" role="alert">{syncError}<button className="text-button" disabled={syncing} onClick={async () => { setSyncing(true); try { await refresh(); } catch (e: any) { setSyncError(e.message); } finally { setSyncing(false); } }}>Atualizar dados</button></div>}
-          {page === "dashboard" && dashboard && <OperationsDashboard rows={rows} orders={orders} boot={boot} lastSync={lastSync} syncError={syncError} syncing={syncing} onRefresh={async () => { setSyncing(true); try { await refresh(); } catch (e: any) { setSyncError(e.message); } finally { setSyncing(false); } }} />}
+          {syncError && page !== "dashboard" && (
+            <div className="notice error" role="alert">
+              {syncError}
+              <button
+                className="text-button"
+                disabled={syncing}
+                onClick={async () => {
+                  setSyncing(true);
+                  try {
+                    await refresh();
+                  } catch (e: any) {
+                    setSyncError(e.message);
+                  } finally {
+                    setSyncing(false);
+                  }
+                }}
+              >
+                Atualizar dados
+              </button>
+            </div>
+          )}
+          {page === "dashboard" && dashboard && (
+            <OperationsDashboard
+              rows={rows}
+              orders={orders}
+              boot={boot}
+              lastSync={lastSync}
+              syncError={syncError}
+              syncing={syncing}
+              onRefresh={async () => {
+                setSyncing(true);
+                try {
+                  await refresh();
+                } catch (e: any) {
+                  setSyncError(e.message);
+                } finally {
+                  setSyncing(false);
+                }
+              }}
+            />
+          )}
           {["occurrences", "triagem"].includes(page) && (
             <>
-              {page === "triagem" && <section data-guide="triage-queue" className="demand-queue" aria-label="Filas de triagem"><p>Analise a demanda e depois escolha quando atender. Planejamento é opcional para comparar obras e agrupar demandas da mesma via.</p><div className="form-actions">{[["IDENTIFICADA", "A analisar"], ["EM_TRIAGEM", "Prontas para programar"], ["", "Todas da triagem"]].map(([value, title]) => <button key={value} type="button" className={`button ${status === value ? "primary" : "secondary"}`} aria-pressed={status === value} onClick={() => setStatus(value)}>{title} ({rows.filter(r => value ? r.status === value : ["IDENTIFICADA", "EM_TRIAGEM"].includes(r.status)).length})</button>)}</div></section>}
+              {page === "triagem" && (
+                <section
+                  data-guide="triage-queue"
+                  className="demand-queue"
+                  aria-label="Filas de triagem"
+                >
+                  <p>
+                    Analise a demanda e depois escolha quando atender.
+                    Planejamento é opcional para comparar obras e agrupar
+                    demandas da mesma via.
+                  </p>
+                  <div className="form-actions">
+                    {[
+                      ["IDENTIFICADA", "A analisar"],
+                      ["EM_TRIAGEM", "Prontas para programar"],
+                      ["", "Todas da triagem"],
+                    ].map(([value, title]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={`button ${status === value ? "primary" : "secondary"}`}
+                        aria-pressed={status === value}
+                        onClick={() => setStatus(value)}
+                      >
+                        {title} (
+                        {
+                          rows.filter((r) =>
+                            value
+                              ? r.status === value
+                              : ["IDENTIFICADA", "EM_TRIAGEM"].includes(
+                                  r.status,
+                                ),
+                          ).length
+                        }
+                        )
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
               {filters}
-              <div className="results-count">{filtered.length} ocorrências nesta página</div>
+              <div className="results-count">
+                {filtered.length} ocorrências nesta página
+              </div>
               {pageControls}
               {listError && <p role="alert">{listError}</p>}
               {occurrenceTable(filtered)}
@@ -936,10 +1389,10 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                 <div>
                   <GeoMap
                     rows={filtered}
-                    onSelect={r => openDetail("occurrence", r.id)}
+                    onSelect={(r) => openDetail("occurrence", r.id)}
                     onOpenFullMap={enterMap}
                     heatmap
-                    loadSummary={id => api(`/mapa/ocorrencias/${id}/resumo`)}
+                    loadSummary={(id) => api(`/mapa/ocorrencias/${id}/resumo`)}
                     large
                   />
                   <div className="legend">
@@ -979,7 +1432,17 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
           {page === "sector-control" && (
             <SectorControl api={api} boot={boot} onOpen={openDetail} />
           )}
-          {page === "kanban" && <TeamKanban rows={rows} orders={orders} boot={boot} can={can} onOpen={openDetail} api={api} onRefresh={refresh} />}
+          {page === "kanban" && (
+            <TeamKanban
+              rows={rows}
+              orders={orders}
+              boot={boot}
+              can={can}
+              onOpen={openDetail}
+              api={api}
+              onRefresh={refresh}
+            />
+          )}
           {page === "review" && (
             <div data-guide="review" className="planning-page">
               <div className="notice">
@@ -1018,7 +1481,9 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
               </div>
               {!orders.some((o) =>
                 ["AGUARDANDO_VALIDACAO", "DEVOLVIDA"].includes(o.status),
-              ) && <Empty text="Nenhum serviço aguardando validação. Os serviços enviados pelas equipes aparecerão aqui para conferência." />}
+              ) && (
+                <Empty text="Nenhum serviço aguardando validação. Os serviços enviados pelas equipes aparecerão aqui para conferência." />
+              )}
             </div>
           )}
           {page === "planning" && (
@@ -1032,7 +1497,17 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
               onOpen={openDetail}
               onOrders={() => changePage("orders")}
               onSchedule={(plan: any) => setModal({ type: "plan-order", plan })}
-              renderMap={(members: Row[]) => <GeoMap rows={members} onSelect={r => openDetail("occurrence", r.id)} point={members.length ? [members[0].lat, members[0].lng] : undefined} />}
+              renderMap={(members: Row[]) => (
+                <GeoMap
+                  rows={members}
+                  onSelect={(r) => openDetail("occurrence", r.id)}
+                  point={
+                    members.length
+                      ? [members[0].lat, members[0].lng]
+                      : undefined
+                  }
+                />
+              )}
             />
           )}
           {page === "orders" && (
@@ -1062,7 +1537,10 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                         onClick={() => openDetail("order", o.id)}
                         tabIndex={0}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail("order", o.id); }
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openDetail("order", o.id);
+                          }
                         }}
                       >
                         <td>
@@ -1137,7 +1615,9 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                           orders.filter(
                             (o) =>
                               o.team_id === t.id &&
-                              !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(o.status),
+                              !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(
+                                o.status,
+                              ),
                           ).length
                         }
                       </strong>
@@ -1171,8 +1651,14 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
           )}
           {page === "materials" && (
             <>
-              <InventoryPanel api={api} catalogs={catalogs("materiais")} readOnly={!can("schedule")} />
-              <div className="section-heading recent"><h2>Cadastros de apoio</h2></div>
+              <InventoryPanel
+                api={api}
+                catalogs={catalogs("materiais")}
+                readOnly={!can("schedule")}
+              />
+              <div className="section-heading recent">
+                <h2>Cadastros de apoio</h2>
+              </div>
               <div className="section-heading">
                 <h2>Materiais</h2>
                 <span>{catalogs("materiais").length} itens</span>
@@ -1362,7 +1848,8 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                     <h2>Usuários e permissões</h2>
                     <button
                       className="button primary"
-                      data-guide="new-user" onClick={() => setModal({ type: "user" })}
+                      data-guide="new-user"
+                      onClick={() => setModal({ type: "user" })}
                     >
                       <Plus size={16} />
                       Novo usuário
@@ -1385,7 +1872,31 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                             <td>{u.name}</td>
                             <td>{u.email}</td>
                             <td>{u.role}</td>
-                            <td>{name(u.team_id)}</td><td><button className="button secondary" data-guide="user-edit" onClick={async()=>{try {const data=await api(`/users/${u.id}/permissions`);setModal({type:"user",item:{...data.user,modules:data.modules}});}catch(e:any){setError(e.message);}}}>Editar usuário</button></td>
+                            <td>{name(u.team_id)}</td>
+                            <td>
+                              <button
+                                className="button secondary"
+                                data-guide="user-edit"
+                                onClick={async () => {
+                                  try {
+                                    const data = await api(
+                                      `/users/${u.id}/permissions`,
+                                    );
+                                    setModal({
+                                      type: "user",
+                                      item: {
+                                        ...data.user,
+                                        modules: data.modules,
+                                      },
+                                    });
+                                  } catch (e: any) {
+                                    setError(e.message);
+                                  }
+                                }}
+                              >
+                                Editar usuário
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1427,7 +1938,13 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
             await api("/ordens-servico", "POST", data);
             setModal(null);
             setToast("Ordem de serviço vinculada ao plano.");
-            try { await refresh(); } catch { setSyncError("A ordem foi salva, mas não foi possível atualizar o planejamento. Atualize os dados antes de continuar."); }
+            try {
+              await refresh();
+            } catch {
+              setSyncError(
+                "A ordem foi salva, mas não foi possível atualizar o planejamento. Atualize os dados antes de continuar.",
+              );
+            }
           }}
         />
       )}
@@ -1458,7 +1975,13 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
                 ? "Solicitação vinculada."
                 : "Ocorrência registrada.",
             );
-            try { await refresh(); } catch { setSyncError("A ocorrência foi registrada, mas a atualização falhou. Atualize os dados antes de continuar."); }
+            try {
+              await refresh();
+            } catch {
+              setSyncError(
+                "A ocorrência foi registrada, mas a atualização falhou. Atualize os dados antes de continuar.",
+              );
+            }
             await openDetail("occurrence", result.id);
           }}
         />
@@ -1487,7 +2010,11 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
           user={modal.item}
           onClose={() => setModal(null)}
           onSave={async (data: any) => {
-            await api(modal.item ? `/users/${modal.item.id}` : "/users", modal.item ? "PATCH" : "POST", data);
+            await api(
+              modal.item ? `/users/${modal.item.id}` : "/users",
+              modal.item ? "PATCH" : "POST",
+              data,
+            );
             await refresh();
             setModal(null);
             setToast(modal.item ? "Usuário atualizado." : "Usuário criado.");
@@ -1496,14 +2023,16 @@ function Workspace({onBoot}:{onBoot:(boot:Boot|null)=>void}) {
       )}
       {detail && (
         <Detail
-          key={detail.id+":"+(detail.guideKey||"")}
+          key={detail.id + ":" + (detail.guideKey || "")}
           value={detail}
           boot={boot}
           can={can}
           onClose={() => setDetail(null)}
           onOpen={openDetail}
           onChange={async () => {
-            const updated = await api(`/${detail.type === "order" ? "ordens-servico" : "ocorrencias"}/${detail.id}`);
+            const updated = await api(
+              `/${detail.type === "order" ? "ordens-servico" : "ocorrencias"}/${detail.id}`,
+            );
             setDetail({ type: detail.type, ...updated });
             await refresh();
           }}
@@ -1601,7 +2130,14 @@ function PlanOrderForm({ plan, boot, orders, onClose, onSave }: any) {
             ))}
           </select>
         </Field>
-        <PlanningTeamCapacity boot={boot} orders={orders} sectorId={sector} selectedTeam={team} date={date} onChoose={(t: any) => setTeam(t.id)} />
+        <PlanningTeamCapacity
+          boot={boot}
+          orders={orders}
+          sectorId={sector}
+          selectedTeam={team}
+          date={date}
+          onChoose={(t: any) => setTeam(t.id)}
+        />
         <div className="form-grid">
           <Field label="Responsável pela ordem">
             <input
@@ -1644,7 +2180,11 @@ function Assignment({ order, boot, onSave, busy }: any) {
     [operator, setOperator] = useState(order.assigned_user_id || "");
   const [date, setDate] = useState(order.scheduled_at || "");
   return (
-    <details className="assignment-form" data-guide="assignment" open={order.guideKey ? true : undefined}>
+    <details
+      className="assignment-form"
+      data-guide="assignment"
+      open={order.guideKey ? true : undefined}
+    >
       <summary>
         {order.status === "DEVOLVIDA"
           ? "Reprogramar serviço devolvido"
@@ -1663,7 +2203,18 @@ function Assignment({ order, boot, onSave, busy }: any) {
           });
         }}
       >
-        <DispatchContext boot={boot} api={api} sectorId={order.sector_id} selectedTeam={team} scheduledAt={date} excludeOrderId={order.id} onChoose={(t: any) => { setTeam(t.id); setOperator(""); }} />
+        <DispatchContext
+          boot={boot}
+          api={api}
+          sectorId={order.sector_id}
+          selectedTeam={team}
+          scheduledAt={date}
+          excludeOrderId={order.id}
+          onChoose={(t: any) => {
+            setTeam(t.id);
+            setOperator("");
+          }}
+        />
         <div className="form-grid">
           <Field label="Equipe da programação">
             <select
@@ -2153,7 +2704,10 @@ function Detail({
     [quantity, setQuantity] = useState(1),
     [equipment, setEquipment] = useState("");
   const [conflict, setConflict] = useState(false);
-  const [triageDecision, setTriageDecision] = useState(v.guideMode === "program" ? "program" : ""), [rejectionReason, setRejectionReason] = useState("");
+  const [triageDecision, setTriageDecision] = useState(
+      v.guideMode === "program" ? "program" : "",
+    ),
+    [rejectionReason, setRejectionReason] = useState("");
   const cats = boot.catalogs.filter((c) => c.kind === "categorias"),
     sectors = boot.catalogs.filter((c) => c.kind === "setores");
   const [triage, setTriage] = useState({
@@ -2173,7 +2727,13 @@ function Detail({
     assigned_user_id: "",
   });
   useEffect(() => {
-    if (schedule.team_id && !teams.some(t => t.id === schedule.team_id)) setSchedule(s => ({ ...s, team_id: "", assigned_user_id: "", responsible: "" }));
+    if (schedule.team_id && !teams.some((t) => t.id === schedule.team_id))
+      setSchedule((s) => ({
+        ...s,
+        team_id: "",
+        assigned_user_id: "",
+        responsible: "",
+      }));
   }, [triage.sector_id, schedule.team_id]);
   const name = (id: string) =>
     boot.catalogs.find((c) => c.id === id)?.name || "—";
@@ -2182,7 +2742,10 @@ function Detail({
     location = isOrder ? v.occurrences[0] : v;
   const [lat, setLat] = useState(location?.lat || 0),
     [lng, setLng] = useState(location?.lng || 0);
-  const execute = async (fn: () => Promise<any>, message = "Operação registrada com sucesso.") => {
+  const execute = async (
+    fn: () => Promise<any>,
+    message = "Operação registrada com sucesso.",
+  ) => {
     if (busy) return;
     setBusy(true);
     setError("");
@@ -2191,7 +2754,13 @@ function Detail({
       await fn();
       setConflict(false);
       setSuccess(message);
-      try { await onChange(); } catch { setError("A operação foi registrada, mas não foi possível atualizar o detalhe. Feche e abra o registro antes de continuar."); }
+      try {
+        await onChange();
+      } catch {
+        setError(
+          "A operação foi registrada, mas não foi possível atualizar o detalhe. Feche e abra o registro antes de continuar.",
+        );
+      }
     } catch (e: any) {
       setConflict(e.code === "VERSION_CONFLICT");
       setError(e.message);
@@ -2200,10 +2769,35 @@ function Detail({
     }
   };
   const action = (a: string, body: any = {}) =>
-    execute(() => api(`${base}/${a}`, "POST", { ...body, version: v.version }), ({ classificar: "Triagem salva. A gestão já pode programar a ordem de serviço.", assumir: "Deslocamento registrado. Confira a chegada e as evidências antes de iniciar.", iniciar: "Execução iniciada. Registre os materiais e as fotos do serviço.", material: "Consumo de material registrado.", equipamento: "Equipamento vinculado ao serviço.", concluir: "Serviço enviado para validação. A conclusão depende da análise da gestão ou fiscalização.", validar: "Serviço validado e concluído. O resultado foi registrado no histórico.", reabrir: "Execução reaberta para correção. A justificativa foi registrada.", cancelar: "Ordem cancelada. A justificativa foi registrada no histórico." } as Record<string, string>)[a]);
-  const editable = !["CONCLUIDA", "CANCELADA", "RECUSADA", "AGUARDANDO_VALIDACAO"].includes(
-    v.status,
-  );
+    execute(
+      () => api(`${base}/${a}`, "POST", { ...body, version: v.version }),
+      (
+        {
+          classificar:
+            "Triagem salva. A gestão já pode programar a ordem de serviço.",
+          assumir:
+            "Deslocamento registrado. Confira a chegada e as evidências antes de iniciar.",
+          iniciar:
+            "Execução iniciada. Registre os materiais e as fotos do serviço.",
+          material: "Consumo de material registrado.",
+          equipamento: "Equipamento vinculado ao serviço.",
+          concluir:
+            "Serviço enviado para validação. A conclusão depende da análise da gestão ou fiscalização.",
+          validar:
+            "Serviço validado e concluído. O resultado foi registrado no histórico.",
+          reabrir:
+            "Execução reaberta para correção. A justificativa foi registrada.",
+          cancelar:
+            "Ordem cancelada. A justificativa foi registrada no histórico.",
+        } as Record<string, string>
+      )[a],
+    );
+  const editable = ![
+    "CONCLUIDA",
+    "CANCELADA",
+    "RECUSADA",
+    "AGUARDANDO_VALIDACAO",
+  ].includes(v.status);
   return (
     <Modal title={v.code} onClose={onClose} wide>
       <div className="detail-summary" data-guide="detail-summary">
@@ -2219,9 +2813,46 @@ function Detail({
         </p>
         {v.demo && <small className="demo-label">Registro demonstrativo</small>}
       </div>
-      <>{conflict && <div className="notice" role="alert"><p>Este registro foi alterado por outra pessoa enquanto você trabalhava nele. Atualize os dados antes de continuar. Seus campos locais foram preservados.</p><button type="button" className="button secondary" disabled={busy} onClick={async () => { setBusy(true); try { await onChange(); setConflict(false); setError(""); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>Atualizar dados</button></div>}</>
-      <WorkflowGuide value={v} catalogs={boot.catalogs} onEvidence={() => setTab("evidence")} />
-      {success && <p className="notice" role="status">{success}</p>}
+      <>
+        {conflict && (
+          <div className="notice" role="alert">
+            <p>
+              Este registro foi alterado por outra pessoa enquanto você
+              trabalhava nele. Atualize os dados antes de continuar. Seus campos
+              locais foram preservados.
+            </p>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onChange();
+                  setConflict(false);
+                  setError("");
+                } catch (e: any) {
+                  setError(e.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Atualizar dados
+            </button>
+          </div>
+        )}
+      </>
+      <WorkflowGuide
+        value={v}
+        catalogs={boot.catalogs}
+        onEvidence={() => setTab("evidence")}
+      />
+      {success && (
+        <p className="notice" role="status">
+          {success}
+        </p>
+      )}
       <div className="tabs">
         <button
           className={tab === "overview" ? "selected" : ""}
@@ -2244,7 +2875,10 @@ function Detail({
           </button>
         )}
         {isOrder && (
-          <button className={tab === "costs" ? "selected" : ""} onClick={() => setTab("costs")}>
+          <button
+            className={tab === "costs" ? "selected" : ""}
+            onClick={() => setTab("costs")}
+          >
             Custos e NFs ({v.invoices?.length || 0})
           </button>
         )}
@@ -2304,7 +2938,17 @@ function Detail({
           ) : (
             <>
               <p className="description">{v.description}</p>
-              {v.status === "RECUSADA" && <div className="notice" role="status"><span><strong>Recusada na triagem</strong><p>{v.rejection_reason}</p><small>{v.rejected_by} · {fmt(v.rejected_at)}</small></span></div>}
+              {v.status === "RECUSADA" && (
+                <div className="notice" role="status">
+                  <span>
+                    <strong>Recusada na triagem</strong>
+                    <p>{v.rejection_reason}</p>
+                    <small>
+                      {v.rejected_by} · {fmt(v.rejected_at)}
+                    </small>
+                  </span>
+                </div>
+              )}
               <div className="detail-facts">
                 <div>
                   <small>Origem</small>
@@ -2328,8 +2972,10 @@ function Detail({
               {v.reference && <p>Referência: {v.reference}</p>}
               <GeoMap rows={[v]} point={[v.lat, v.lng]} />
               {can("classify") &&
-                ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "" && (
-                  <form data-guide="classification"
+                ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) &&
+                triageDecision === "" && (
+                  <form
+                    data-guide="classification"
                     onSubmit={(e) => {
                       e.preventDefault();
                       action("classificar", triage);
@@ -2407,114 +3053,222 @@ function Detail({
                       </Field>
                     </div>
                     <div className="form-actions">
-                      {can("schedule") && <button type="button" className="button primary" disabled={busy} onClick={() => { setTriageDecision("program"); setError(""); }}><Plus size={16}/>Gerar ordem de serviço</button>}
-                      <button type="submit" className={`button ${can("schedule") ? "secondary" : "primary"}`} disabled={busy}><Check size={16}/>Concluir triagem e programar depois</button>
-                      <button type="button" className="button secondary" disabled={busy} data-guide="refuse" onClick={() => { setTriageDecision("reject"); setError(""); }}>Recusar</button>
+                      {can("schedule") && (
+                        <button
+                          type="button"
+                          className="button primary"
+                          disabled={busy}
+                          onClick={() => {
+                            setTriageDecision("program");
+                            setError("");
+                          }}
+                        >
+                          <Plus size={16} />
+                          Gerar ordem de serviço
+                        </button>
+                      )}
+                      <button
+                        type="submit"
+                        className={`button ${can("schedule") ? "secondary" : "primary"}`}
+                        disabled={busy}
+                      >
+                        <Check size={16} />
+                        Concluir triagem e programar depois
+                      </button>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={busy}
+                        data-guide="refuse"
+                        onClick={() => {
+                          setTriageDecision("reject");
+                          setError("");
+                        }}
+                      >
+                        Recusar
+                      </button>
                     </div>
                   </form>
                 )}
-              {can("classify") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "reject" && <form className="assignment-form" onSubmit={e => { e.preventDefault(); execute(async () => { await api(`/ocorrencias/${v.id}/recusar`, "POST", { reason: rejectionReason, version: v.version }); setTriageDecision(""); }, "Demanda recusada. A justificativa foi registrada no histórico."); }}><h3>Justificativa de recusa</h3><Field label="Justificativa de recusa"><textarea autoFocus required maxLength={2000} rows={4} value={rejectionReason} onChange={e=>setRejectionReason(e.target.value)} placeholder="Informe o motivo da recusa desta demanda."/></Field><div className="form-actions"><button type="button" className="button secondary" disabled={busy} onClick={()=>setTriageDecision("")}>Voltar</button><button className="button primary" disabled={busy || !rejectionReason.trim()}>{busy ? "Enviando..." : "Enviar"}</button></div></form>}
-              {can("schedule") && ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) && triageDecision === "program" && (
-                <form data-guide="scheduling"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    execute(async () => {
-                      await api("/ordens-servico", "POST", {
-                        ...schedule,
-                        occurrence_ids: [v.id],
-                        triage: { ...triage, version: v.version },
-                      });
-                      setTriageDecision("");
-                      setTab("overview");
-                    }, "Ordem de serviço criada e equipe designada.");
-                  }}
-                >
-                  <div className="form-section-title">
-                    <ClipboardList size={18} />
-                    <h3>Gerar ordem de serviço</h3>
-                  </div>
-                  <p>Escolha a equipe e a data. A triagem será salva junto com a programação.</p>
-                  <details className="dispatch-optional"><summary>Consultar equipes e trabalhos do setor</summary><DispatchContext boot={boot} api={api} sectorId={triage.sector_id || v.sector_id} selectedTeam={schedule.team_id} scheduledAt={schedule.scheduled_at} occurrenceId={v.id} onOpen={onOpen} onChoose={(t: any) => setSchedule({ ...schedule, team_id: t.id, assigned_user_id: "", responsible: t.leader || "" })} /></details>
-                  <div className="form-grid">
-                    <Field label="Equipe">
-                      <select
+              {can("classify") &&
+                ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) &&
+                triageDecision === "reject" && (
+                  <form
+                    className="assignment-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      execute(async () => {
+                        await api(`/ocorrencias/${v.id}/recusar`, "POST", {
+                          reason: rejectionReason,
+                          version: v.version,
+                        });
+                        setTriageDecision("");
+                      }, "Demanda recusada. A justificativa foi registrada no histórico.");
+                    }}
+                  >
+                    <h3>Justificativa de recusa</h3>
+                    <Field label="Justificativa de recusa">
+                      <textarea
+                        autoFocus
                         required
-                        value={schedule.team_id}
-                        onChange={(e) =>
-                          setSchedule({
-                            ...schedule,
-                            team_id: e.target.value,
-                            assigned_user_id: "",
-                            responsible:
-                              teams.find((t) => t.id === e.target.value)
-                                ?.leader || "",
-                          })
-                        }
-                      >
-                        <option value="">Selecione</option>
-                        {teams.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                      </select>
+                        maxLength={2000}
+                        rows={4}
+                        value={rejectionReason}
+                        onChange={(e) => setRejectionReason(e.target.value)}
+                        placeholder="Informe o motivo da recusa desta demanda."
+                      />
                     </Field>
-                    <Field label="Operador designado">
-                      <select
-                        aria-label="Operador designado"
-                        value={schedule.assigned_user_id}
-                        onChange={(e) =>
+                    <div className="form-actions">
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={busy}
+                        onClick={() => setTriageDecision("")}
+                      >
+                        Voltar
+                      </button>
+                      <button
+                        className="button primary"
+                        disabled={busy || !rejectionReason.trim()}
+                      >
+                        {busy ? "Enviando..." : "Enviar"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              {can("schedule") &&
+                ["IDENTIFICADA", "EM_TRIAGEM"].includes(v.status) &&
+                triageDecision === "program" && (
+                  <form
+                    data-guide="scheduling"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      execute(async () => {
+                        await api("/ordens-servico", "POST", {
+                          ...schedule,
+                          occurrence_ids: [v.id],
+                          triage: { ...triage, version: v.version },
+                        });
+                        setTriageDecision("");
+                        setTab("overview");
+                      }, "Ordem de serviço criada e equipe designada.");
+                    }}
+                  >
+                    <div className="form-section-title">
+                      <ClipboardList size={18} />
+                      <h3>Gerar ordem de serviço</h3>
+                    </div>
+                    <p>
+                      Escolha a equipe e a data. A triagem será salva junto com
+                      a programação.
+                    </p>
+                    <details className="dispatch-optional">
+                      <summary>Consultar equipes e trabalhos do setor</summary>
+                      <DispatchContext
+                        boot={boot}
+                        api={api}
+                        sectorId={triage.sector_id || v.sector_id}
+                        selectedTeam={schedule.team_id}
+                        scheduledAt={schedule.scheduled_at}
+                        occurrenceId={v.id}
+                        onOpen={onOpen}
+                        onChoose={(t: any) =>
                           setSchedule({
                             ...schedule,
-                            assigned_user_id: e.target.value,
+                            team_id: t.id,
+                            assigned_user_id: "",
+                            responsible: t.leader || "",
                           })
                         }
-                      >
-                        <option value="">Toda a equipe</option>
-                        {boot.operators
-                          .filter((u) => u.team_id === schedule.team_id)
-                          .map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name}
+                      />
+                    </details>
+                    <div className="form-grid">
+                      <Field label="Equipe">
+                        <select
+                          required
+                          value={schedule.team_id}
+                          onChange={(e) =>
+                            setSchedule({
+                              ...schedule,
+                              team_id: e.target.value,
+                              assigned_user_id: "",
+                              responsible:
+                                teams.find((t) => t.id === e.target.value)
+                                  ?.leader || "",
+                            })
+                          }
+                        >
+                          <option value="">Selecione</option>
+                          {teams.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
                             </option>
                           ))}
-                      </select>
-                    </Field>
-                    <Field label="Data programada">
-                      <input
-                        type="date"
-                        required
-                        value={schedule.scheduled_at}
-                        onChange={(e) =>
-                          setSchedule({
-                            ...schedule,
-                            scheduled_at: e.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field label="Responsável" wide>
-                      <input
-                        required
-                        value={schedule.responsible}
-                        onChange={(e) =>
-                          setSchedule({
-                            ...schedule,
-                            responsible: e.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                  </div>
-                  <div className="form-actions">
-                  <button type="button" className="button secondary" disabled={busy} onClick={() => setTriageDecision("")}>Voltar à triagem</button>
-                  <button className="button primary" disabled={busy}>
-                    <Plus size={17} />
-                    Confirmar ordem de serviço
-                  </button>
-                  </div>
-                </form>
-              )}
+                        </select>
+                      </Field>
+                      <Field label="Operador designado">
+                        <select
+                          aria-label="Operador designado"
+                          value={schedule.assigned_user_id}
+                          onChange={(e) =>
+                            setSchedule({
+                              ...schedule,
+                              assigned_user_id: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="">Toda a equipe</option>
+                          {boot.operators
+                            .filter((u) => u.team_id === schedule.team_id)
+                            .map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name}
+                              </option>
+                            ))}
+                        </select>
+                      </Field>
+                      <Field label="Data programada">
+                        <input
+                          type="date"
+                          required
+                          value={schedule.scheduled_at}
+                          onChange={(e) =>
+                            setSchedule({
+                              ...schedule,
+                              scheduled_at: e.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field label="Responsável" wide>
+                        <input
+                          required
+                          value={schedule.responsible}
+                          onChange={(e) =>
+                            setSchedule({
+                              ...schedule,
+                              responsible: e.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                    </div>
+                    <div className="form-actions">
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={busy}
+                        onClick={() => setTriageDecision("")}
+                      >
+                        Voltar à triagem
+                      </button>
+                      <button className="button primary" disabled={busy}>
+                        <Plus size={17} />
+                        Confirmar ordem de serviço
+                      </button>
+                    </div>
+                  </form>
+                )}
               {v.orders.length > 0 && (
                 <>
                   <h3 className="spaced">Ordens de serviço</h3>
@@ -2688,7 +3442,13 @@ function Detail({
         </>
       )}
       {isOrder && tab === "costs" && (
-        <InvoicePanel order={v} materials={boot.catalogs.filter((item) => item.kind === "materiais")} api={api} onChange={onChange} canManage={can("schedule")} />
+        <InvoicePanel
+          order={v}
+          materials={boot.catalogs.filter((item) => item.kind === "materiais")}
+          api={api}
+          onChange={onChange}
+          canManage={can("schedule")}
+        />
       )}
       {isOrder && v.return_reason && (
         <div className="notice">
@@ -2722,7 +3482,12 @@ function Detail({
             order={v}
             boot={boot}
             onSave={(data: any) =>
-              execute(() => api(`${base}/programacao`, "POST", { ...data, version: v.version }))
+              execute(() =>
+                api(`${base}/programacao`, "POST", {
+                  ...data,
+                  version: v.version,
+                }),
+              )
             }
             busy={busy}
           />
@@ -2936,7 +3701,8 @@ function Detail({
               <button
                 className="button primary"
                 disabled={busy}
-                data-guide="validate" onClick={() => action("validar")}
+                data-guide="validate"
+                onClick={() => action("validar")}
               >
                 <ShieldCheck size={17} />
                 Validar e concluir
@@ -2949,7 +3715,8 @@ function Detail({
               ["PROGRAMADA", "EM_DESLOCAMENTO", "EM_EXECUCAO"].includes(
                 v.status,
               ))) && (
-            <form data-guide="reopen"
+            <form
+              data-guide="reopen"
               onSubmit={(e) => {
                 e.preventDefault();
                 action(
@@ -3168,7 +3935,14 @@ function CatalogForm({
               />
             </Field>
             <Field label="Estoque mínimo">
-              <input type="number" min="0" step="0.001" required value={d.minimum_stock || 0} onChange={(e) => set("minimum_stock", Number(e.target.value))} />
+              <input
+                type="number"
+                min="0"
+                step="0.001"
+                required
+                value={d.minimum_stock || 0}
+                onChange={(e) => set("minimum_stock", Number(e.target.value))}
+              />
             </Field>
           </div>
         )}
@@ -3259,19 +4033,20 @@ function UserForm({
       role: user?.role || "Consulta",
       modules: user?.modules || defaultModules("Consulta"),
       team_id: user?.team_id || null,
-      ...(user ? {name:user.name,email:user.email} : {}),
+      ...(user ? { name: user.name, email: user.email } : {}),
     }),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const master = isMasterUser(user);
   return (
     <Modal title={user ? "Editar usuário" : "Novo usuário"} onClose={onClose}>
-      <form data-guide="user-fields"
+      <form
+        data-guide="user-fields"
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
           try {
-            const {password,...data}=d;
+            const { password, ...data } = d;
             await onSave(user ? data : d);
           } catch (e: any) {
             setError(e.message);
@@ -3284,24 +4059,52 @@ function UserForm({
           ["name", "Nome", "text"],
           ["email", "E-mail", "email"],
           ["password", "Senha (mínimo 10 caracteres)", "password"],
-        ].filter(([k])=>!user || k!=="password").map(([k, l, t]) => (
-          <Field key={k} label={l}>
-            <input
-              required
-              type={t}
-              readOnly={master && k === "email"}
-              minLength={k === "password" ? 10 : 2}
-              autoComplete={k === "password" ? "new-password" : "off"}
-              value={d[k]}
-              onChange={(e) => setD({ ...d, [k]: e.target.value })}
-            />
-          </Field>
-        ))}
+        ]
+          .filter(([k]) => !user || k !== "password")
+          .map(([k, l, t]) => (
+            <Field key={k} label={l}>
+              <input
+                required
+                type={t}
+                readOnly={master && k === "email"}
+                minLength={k === "password" ? 10 : 2}
+                autoComplete={k === "password" ? "new-password" : "off"}
+                value={d[k]}
+                onChange={(e) => setD({ ...d, [k]: e.target.value })}
+              />
+            </Field>
+          ))}
         <Field label="Perfil">
           <select
             disabled={master}
             value={d.role}
-            onChange={(e) => {const role=e.target.value; const removed=d.modules.filter((m:string)=>!canRoleAccessModule(role,m));setD({...d,role,team_id:role==='Equipe de Campo'?d.team_id:null,modules:user?d.modules.filter((m:string)=>canRoleAccessModule(role,m)):defaultModules(role)});setError(removed.length?'Acessos incompatíveis removidos: '+removed.map((m:string)=>moduleCatalog.find(c=>c.key===m)?.label).join(', '):'');}}
+            onChange={(e) => {
+              const role = e.target.value;
+              const removed = d.modules.filter(
+                (m: string) => !canRoleAccessModule(role, m),
+              );
+              setD({
+                ...d,
+                role,
+                team_id: role === "Equipe de Campo" ? d.team_id : null,
+                modules: user
+                  ? d.modules.filter((m: string) =>
+                      canRoleAccessModule(role, m),
+                    )
+                  : defaultModules(role),
+              });
+              setError(
+                removed.length
+                  ? "Acessos incompatíveis removidos: " +
+                      removed
+                        .map(
+                          (m: string) =>
+                            moduleCatalog.find((c) => c.key === m)?.label,
+                        )
+                        .join(", ")
+                  : "",
+              );
+            }}
           >
             {boot.roles.map((r) => (
               <option key={r}>{r}</option>
@@ -3324,8 +4127,51 @@ function UserForm({
               ))}
           </select>
         </Field>
-        <fieldset data-guide="module-access" className="module-access"><legend>Acesso aos módulos</legend><p className="muted">Módulos não concedem poderes adicionais ao perfil. Campo é exclusivo da Equipe de Campo, com exceção da conta master de manutenção.</p>{master && <p className="notice">Conta master de manutenção: todos os módulos permanecem liberados.</p>}<div className="module-access-options">{moduleCatalog.filter(m=>master || canRoleAccessModule(d.role,m.key)).map(m=><label key={m.key} className="module-access-option"><input type="checkbox" disabled={master} checked={master || d.modules.includes(m.key)} onChange={e=>setD({...d,modules:e.target.checked?[...d.modules,m.key]:d.modules.filter((key:string)=>key!==m.key)})}/><span>{m.label}</span></label>)}</div></fieldset>
-        {error && <p className={error.startsWith("Acessos incompatíveis removidos:") ? "notice" : "form-error"}>{error}</p>}
+        <fieldset data-guide="module-access" className="module-access">
+          <legend>Acesso aos módulos</legend>
+          <p className="muted">
+            Módulos não concedem poderes adicionais ao perfil. Campo é exclusivo
+            da Equipe de Campo, com exceção da conta master de manutenção.
+          </p>
+          {master && (
+            <p className="notice">
+              Conta master de manutenção: todos os módulos permanecem liberados.
+            </p>
+          )}
+          <div className="module-access-options">
+            {moduleCatalog
+              .filter((m) => master || canRoleAccessModule(d.role, m.key))
+              .map((m) => (
+                <label key={m.key} className="module-access-option">
+                  <input
+                    type="checkbox"
+                    disabled={master}
+                    checked={master || d.modules.includes(m.key)}
+                    onChange={(e) =>
+                      setD({
+                        ...d,
+                        modules: e.target.checked
+                          ? [...d.modules, m.key]
+                          : d.modules.filter((key: string) => key !== m.key),
+                      })
+                    }
+                  />
+                  <span>{m.label}</span>
+                </label>
+              ))}
+          </div>
+        </fieldset>
+        {error && (
+          <p
+            className={
+              error.startsWith("Acessos incompatíveis removidos:")
+                ? "notice"
+                : "form-error"
+            }
+          >
+            {error}
+          </p>
+        )}
         <div className="form-actions">
           <button className="button primary" disabled={busy}>
             <Plus size={16} />
@@ -3348,7 +4194,8 @@ function SettingsForm({
     duplicate_radius: boot.settings.duplicate_radius,
   });
   return (
-    <form data-guide="settings"
+    <form
+      data-guide="settings"
       className="settings-form"
       onSubmit={(e) => {
         e.preventDefault();
@@ -3382,7 +4229,15 @@ function SettingsForm({
   );
 }
 
-function App(){const [boot,setBoot]=useState<Boot|null>(null);return <><Workspace onBoot={setBoot}/>{boot&&<OnboardingEntry key={boot.user.id} boot={boot} api={api}/>}</>;}
+function App() {
+  const [boot, setBoot] = useState<Boot | null>(null);
+  return (
+    <>
+      <Workspace onBoot={setBoot} />
+      {boot && <OnboardingEntry key={boot.user.id} boot={boot} api={api} />}
+    </>
+  );
+}
 createRoot(document.getElementById("root")!).render(<App />);
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {

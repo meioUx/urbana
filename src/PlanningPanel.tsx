@@ -208,11 +208,20 @@ export default function PlanningPanel({
         role="tablist"
         aria-label="Etapas do planejamento"
         onKeyDown={(e) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
+            return;
           e.preventDefault();
-          const next = e.key === "Home" ? "choose" : e.key === "End" ? "plans" : tab === "choose" ? "plans" : "choose";
+          const next =
+            e.key === "Home"
+              ? "choose"
+              : e.key === "End"
+                ? "plans"
+                : tab === "choose"
+                  ? "plans"
+                  : "choose";
           setTab(next);
-          const buttons = e.currentTarget.querySelectorAll<HTMLButtonElement>("button");
+          const buttons =
+            e.currentTarget.querySelectorAll<HTMLButtonElement>("button");
           buttons[next === "choose" ? 0 : 1]?.focus();
         }}
       >
@@ -546,7 +555,9 @@ export default function PlanningPanel({
                 <div className="planning-empty">
                   <h3>Nenhuma intervenção nestes filtros</h3>
                   <p>
-                    Demandas reservadas em planos aparecem em Planos e execução. Atendimentos já programados podem ser consultados em Ordens de serviço.
+                    Demandas reservadas em planos aparecem em Planos e execução.
+                    Atendimentos já programados podem ser consultados em Ordens
+                    de serviço.
                   </p>
                   <button
                     className="button secondary"
@@ -676,7 +687,13 @@ export default function PlanningPanel({
           <div className="planning-section-heading">
             <h2>Da decisão à entrega</h2>
             <span>{planRows.length} planos</span>
-            <button type="button" className="button secondary" onClick={onOrders}>Ver todas as ordens</button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={onOrders}
+            >
+              Ver todas as ordens
+            </button>
           </div>
           <div className="planning-plan-grid">
             {planRows.map((p: any) => {
@@ -698,7 +715,9 @@ export default function PlanningPanel({
                   <h3>{p.street}</h3>
                   <p className="planning-plan-location">
                     {p.neighborhood} ·{" "}
-                    {Array.from(new Set(p.occurrences.map((o: any) => name(o.sector_id)))).join(", ")}
+                    {Array.from(
+                      new Set(p.occurrences.map((o: any) => name(o.sector_id))),
+                    ).join(", ")}
                   </p>
                   <p className="planning-plan-objective">{p.objective}</p>
                   <div className="planning-plan-metadata">

@@ -7,7 +7,11 @@ import type { GeoJsonObject } from "geojson";
 import { mapTileProvider } from "./config";
 
 // Independent operational overlays: works, interventions, road segments, closures and mobility.
-export type MapOverlay = { id: string; data: GeoJsonObject; options?: L.GeoJSONOptions };
+export type MapOverlay = {
+  id: string;
+  data: GeoJsonObject;
+  options?: L.GeoJSONOptions;
+};
 import { LocateFixed } from "lucide-react";
 import { heatLayer } from "../../heat-layer";
 import { colors } from "../../shared/workflow";
@@ -41,15 +45,24 @@ export default function GeoMap({
     select = useRef(onSelect),
     summary = useRef(loadSummary);
   summary.current = loadSummary;
-  const [popup, setPopup] = useState<{id: string; element: HTMLElement} | null>(null);
+  const [popup, setPopup] = useState<{
+    id: string;
+    element: HTMLElement;
+  } | null>(null);
   const selectedMarker = useRef<HTMLElement | null>(null);
-  const summaryCache = useRef(new Map<string, {time: number; request: Promise<any>}>());
+  const summaryCache = useRef(
+    new Map<string, { time: number; request: Promise<any> }>(),
+  );
   const getSummary = (id: string) => {
     const cached = summaryCache.current.get(id);
     if (cached && Date.now() - cached.time < 30000) return cached.request;
-    const request = summary.current!(id).catch(error => { summaryCache.current.delete(id); throw error; });
-    if (summaryCache.current.size >= 20) summaryCache.current.delete(summaryCache.current.keys().next().value!);
-    summaryCache.current.set(id, {time: Date.now(), request});
+    const request = summary.current!(id).catch((error) => {
+      summaryCache.current.delete(id);
+      throw error;
+    });
+    if (summaryCache.current.size >= 20)
+      summaryCache.current.delete(summaryCache.current.keys().next().value!);
+    summaryCache.current.set(id, { time: Date.now(), request });
     return request;
   };
   handler.current = pick;
@@ -90,8 +103,12 @@ export default function GeoMap({
     group.current = L.layerGroup().addTo(m);
     m.on("popupclose", () => setPopup(null));
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && element.current?.querySelector(".operational-popup")) {
-        m.closePopup(); selectedMarker.current?.focus();
+      if (
+        event.key === "Escape" &&
+        element.current?.querySelector(".operational-popup")
+      ) {
+        m.closePopup();
+        selectedMarker.current?.focus();
       }
     };
     document.addEventListener("keydown", escape);
@@ -111,7 +128,9 @@ export default function GeoMap({
     const layers = (overlays || []).map(({ data, options }) =>
       L.geoJSON(data, options).addTo(map.current!),
     );
-    return () => { layers.forEach((layer) => layer.remove()); };
+    return () => {
+      layers.forEach((layer) => layer.remove());
+    };
   }, [overlays]);
   useEffect(() => {
     const g = group.current;
@@ -132,28 +151,72 @@ export default function GeoMap({
       tip.textContent = `${r.code} · ${r.address}`;
       marker.bindTooltip(tip);
       const open = () => {
-        if (!summary.current) { select.current?.(r); return; }
+        if (!summary.current) {
+          select.current?.(r);
+          return;
+        }
         selectedMarker.current = marker.getElement() as HTMLElement;
         const content = document.createElement("div");
         const dedicated = !!element.current?.closest(".territorial-view");
         const compact = window.innerWidth <= 700;
-        const availableHeight = Math.min(window.innerHeight, map.current!.getSize().y);
-        marker.bindPopup(content, {className:"operational-popup", minWidth:240, maxWidth:440, maxHeight: Math.max(100, availableHeight - (dedicated ? compact ? 330 : 230 : 130)), autoPanPaddingTopLeft:L.point(20,dedicated ? 110 : 20), autoPanPaddingBottomRight:L.point(20,dedicated && compact ? 150 : 60)}).openPopup();
+        const availableHeight = Math.min(
+          window.innerHeight,
+          map.current!.getSize().y,
+        );
+        marker
+          .bindPopup(content, {
+            className: "operational-popup",
+            minWidth: 240,
+            maxWidth: 440,
+            maxHeight: Math.max(
+              100,
+              availableHeight - (dedicated ? (compact ? 330 : 230) : 130),
+            ),
+            autoPanPaddingTopLeft: L.point(20, dedicated ? 110 : 20),
+            autoPanPaddingBottomRight: L.point(
+              20,
+              dedicated && compact ? 150 : 60,
+            ),
+          })
+          .openPopup();
         content.tabIndex = -1;
         content.setAttribute("role", "region");
         content.setAttribute("aria-label", "Resumo operacional");
-        content.addEventListener("keydown", event => { if (event.key === "Escape") {event.stopPropagation(); map.current?.closePopup(); (marker.getElement() as HTMLElement | undefined)?.focus();} });
-        const observer = new MutationObserver(() => marker.getPopup()?.update());
-        observer.observe(content, {childList:true, subtree:true, characterData:true});
+        content.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            map.current?.closePopup();
+            (marker.getElement() as HTMLElement | undefined)?.focus();
+          }
+        });
+        const observer = new MutationObserver(() =>
+          marker.getPopup()?.update(),
+        );
+        observer.observe(content, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
         marker.once("popupclose", () => observer.disconnect());
-        setPopup({id:r.id, element:content});
+        setPopup({ id: r.id, element: content });
         content.focus();
       };
       marker.on("click", open);
       const node = marker.getElement();
       if (node) {
-        node.setAttribute("tabindex", "0"); node.setAttribute("role", "button"); node.setAttribute("aria-label", `Abrir serviço em ${r.address || r.code}`);
-        L.DomEvent.on(node as HTMLElement, "keydown", (event: Event) => { const e = event as KeyboardEvent; if (e.key === "Enter" || e.key === " ") {e.preventDefault(); open();} });
+        node.setAttribute("tabindex", "0");
+        node.setAttribute("role", "button");
+        node.setAttribute(
+          "aria-label",
+          `Abrir serviço em ${r.address || r.code}`,
+        );
+        L.DomEvent.on(node as HTMLElement, "keydown", (event: Event) => {
+          const e = event as KeyboardEvent;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            open();
+          }
+        });
       }
     });
     if (point) {
@@ -169,7 +232,27 @@ export default function GeoMap({
   }, [rows, point?.[0], point?.[1], mapMode, heatmap]);
   return (
     <>
-      {popup && loadSummary && createPortal(<OperationalPopup key={popup.id} id={popup.id} load={getSummary} onOpen={onSelect ? () => { const row = rows.find(r => r.id === popup.id); if (row) { map.current?.closePopup(); onSelect(row); } } : undefined}/>, popup.element)}
+      {popup &&
+        loadSummary &&
+        createPortal(
+          <OperationalPopup
+            key={popup.id}
+            id={popup.id}
+            load={getSummary}
+            onOpen={
+              onSelect
+                ? () => {
+                    const row = rows.find((r) => r.id === popup.id);
+                    if (row) {
+                      map.current?.closePopup();
+                      onSelect(row);
+                    }
+                  }
+                : undefined
+            }
+          />,
+          popup.element,
+        )}
       {heatmap && (
         <div
           className="heat-controls"
@@ -177,25 +260,35 @@ export default function GeoMap({
           aria-label="Visualização do mapa"
         >
           <div className="heat-control-buttons">
-          <button
-            type="button"
-            className="button secondary"
-            aria-pressed={mapMode === "points"}
-            onClick={() => setMapMode("points")}
-          >
-            Pontos de ocorrências
-          </button>
-          <button
-            type="button"
-            className="button secondary"
-            aria-pressed={mapMode === "heat"}
-            onClick={() => setMapMode("heat")}
-          >
-            Mapa de calor
-          </button>
-          {onOpenFullMap && <button type="button" className="button secondary" onClick={onOpenFullMap}>Abrir mapa completo ↗</button>}
+            <button
+              type="button"
+              className="button secondary"
+              aria-pressed={mapMode === "points"}
+              onClick={() => setMapMode("points")}
+            >
+              Pontos de ocorrências
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              aria-pressed={mapMode === "heat"}
+              onClick={() => setMapMode("heat")}
+            >
+              Mapa de calor
+            </button>
+            {onOpenFullMap && (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={onOpenFullMap}
+              >
+                Abrir mapa completo ↗
+              </button>
+            )}
           </div>
-          <span className="heat-count">{rows.length} ocorrências nos filtros atuais</span>
+          <span className="heat-count">
+            {rows.length} ocorrências nos filtros atuais
+          </span>
         </div>
       )}
       <div className={`map-wrap ${large ? "large" : ""}`}>

@@ -15,7 +15,7 @@ export const roles = [
   "Fiscalização",
   "Consulta",
 ];
-export {actionRoles as permissions} from "../shared/authorization.mjs";
+export { actionRoles as permissions } from "../shared/authorization.mjs";
 export function hashPassword(password) {
   const salt = randomBytes(16).toString("hex");
   return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;

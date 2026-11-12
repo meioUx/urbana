@@ -22,13 +22,13 @@ Consolidado e verificado contra o código em **2026-10-02**. O código e os test
 
 Princípios: rastreabilidade; transações críticas; responsabilidade e próxima ação claras; servidor como fonte de verdade; Kanban e painéis como representações do processo; evolução incremental; acessibilidade sem depender de cor, arraste ou mouse. Dados reais, históricos, estimados e simulados devem ser distinguidos; fornecedores externos não devem determinar o domínio.
 
-| Conceito | Definição | Status |
-| --- | --- | --- |
-| Ocorrência | Problema, demanda ou necessidade identificada no território | IMPLEMENTADO |
-| Ordem de serviço (OS) | Atendimento planejado de uma ou mais ocorrências, com estado, equipe, prioridade, prazo e recursos próprios | IMPLEMENTADO |
-| Plano de ação (PA) | Agrupamento operacional de demandas da mesma via/bairro/setor | IMPLEMENTADO |
-| Intervenção | Conjunto estruturado de serviços num trecho, área ou ativo, com geometria, período, responsável, prioridade e vínculos opcionais | PLANEJADO — P1 |
-| Obra | Projeto municipal de infraestrutura que poderá reunir intervenções, OS, cronograma, custos, fiscalização, medições e impacto viário | PLANEJADO — P1/P2 |
+| Conceito              | Definição                                                                                                                           | Status            |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Ocorrência            | Problema, demanda ou necessidade identificada no território                                                                         | IMPLEMENTADO      |
+| Ordem de serviço (OS) | Atendimento planejado de uma ou mais ocorrências, com estado, equipe, prioridade, prazo e recursos próprios                         | IMPLEMENTADO      |
+| Plano de ação (PA)    | Agrupamento operacional de demandas da mesma via/bairro/setor                                                                       | IMPLEMENTADO      |
+| Intervenção           | Conjunto estruturado de serviços num trecho, área ou ativo, com geometria, período, responsável, prioridade e vínculos opcionais    | PLANEJADO — P1    |
+| Obra                  | Projeto municipal de infraestrutura que poderá reunir intervenções, OS, cronograma, custos, fiscalização, medições e impacto viário | PLANEJADO — P1/P2 |
 
 Não fundir ocorrência e OS nem transformar planos automaticamente em obras. Uma manutenção simples deve continuar independente de obra ou intervenção. Usos atuais da palavra “obra” na interface são linguagem operacional, não evidência de uma entidade de obra implementada.
 
@@ -38,32 +38,32 @@ Não fundir ocorrência e OS nem transformar planos automaticamente em obras. Um
 
 A fonte executável dos estados/transições é `server/domain/workflow.js`. Ocorrência decide entrada no atendimento; OS controla execução. Criar uma OS a partir de demandas triadas projeta PROGRAMADA nas ocorrências; mudanças da OS propagam seus estados. A relação é N:N: ao encerrar uma OS, outra OS ativa vinculada pode manter o estado ativo da ocorrência.
 
-| Código | Significado e exibição |
-| --- | --- |
-| IDENTIFICADA | Demanda recebida: “A analisar”; Kanban: “Identificadas” |
-| EM_TRIAGEM | Classificação concluída: “Pronta para programar”; Kanban ainda exibe “Em triagem” |
-| RECUSADA | Decisão justificada de não atender; antes de OS |
-| PROGRAMADA | OS emitida e atribuída |
-| EM_DESLOCAMENTO | Equipe a caminho |
-| EM_EXECUCAO | Serviço iniciado |
-| AGUARDANDO_VALIDACAO | Relato enviado, pendente de conferência |
-| DEVOLVIDA | Impedimento justificado; gestão deve reprogramar |
-| CONCLUIDA | Resultado validado |
-| CANCELADA | OS interrompida com justificativa |
+| Código               | Significado e exibição                                                            |
+| -------------------- | --------------------------------------------------------------------------------- |
+| IDENTIFICADA         | Demanda recebida: “A analisar”; Kanban: “Identificadas”                           |
+| EM_TRIAGEM           | Classificação concluída: “Pronta para programar”; Kanban ainda exibe “Em triagem” |
+| RECUSADA             | Decisão justificada de não atender; antes de OS                                   |
+| PROGRAMADA           | OS emitida e atribuída                                                            |
+| EM_DESLOCAMENTO      | Equipe a caminho                                                                  |
+| EM_EXECUCAO          | Serviço iniciado                                                                  |
+| AGUARDANDO_VALIDACAO | Relato enviado, pendente de conferência                                           |
+| DEVOLVIDA            | Impedimento justificado; gestão deve reprogramar                                  |
+| CONCLUIDA            | Resultado validado                                                                |
+| CANCELADA            | OS interrompida com justificativa                                                 |
 
 Transições diretas da ocorrência: IDENTIFICADA → EM_TRIAGEM ou RECUSADA; EM_TRIAGEM → EM_TRIAGEM (complementar/corrigir classificação) ou RECUSADA. RECUSADA não tem saída operacional. Não existe transição direta de execução da ocorrência.
 
 Transições da OS:
 
-| Origem | Destinos permitidos |
-| --- | --- |
-| PROGRAMADA | EM_DESLOCAMENTO, EM_EXECUCAO, DEVOLVIDA, CANCELADA |
-| EM_DESLOCAMENTO | EM_EXECUCAO, DEVOLVIDA, CANCELADA |
-| EM_EXECUCAO | AGUARDANDO_VALIDACAO, DEVOLVIDA, CANCELADA |
-| AGUARDANDO_VALIDACAO | CONCLUIDA, EM_EXECUCAO (reabertura) |
-| DEVOLVIDA | PROGRAMADA |
-| CONCLUIDA | EM_EXECUCAO (reabertura) |
-| CANCELADA | Nenhum |
+| Origem               | Destinos permitidos                                |
+| -------------------- | -------------------------------------------------- |
+| PROGRAMADA           | EM_DESLOCAMENTO, EM_EXECUCAO, DEVOLVIDA, CANCELADA |
+| EM_DESLOCAMENTO      | EM_EXECUCAO, DEVOLVIDA, CANCELADA                  |
+| EM_EXECUCAO          | AGUARDANDO_VALIDACAO, DEVOLVIDA, CANCELADA         |
+| AGUARDANDO_VALIDACAO | CONCLUIDA, EM_EXECUCAO (reabertura)                |
+| DEVOLVIDA            | PROGRAMADA                                         |
+| CONCLUIDA            | EM_EXECUCAO (reabertura)                           |
+| CANCELADA            | Nenhum                                             |
 
 ### Registro e decisão de atendimento
 
@@ -89,15 +89,15 @@ Evidências: JPG, PNG, WebP, PDF ou MP4, até 15 MB; etapas registro, antes, dur
 
 **Status: IMPLEMENTADO.** Seis perfis vigentes definidos em `server/domain.js`:
 
-| Ação | Administrador | Gestor | Triagem | Campo | Fiscalização | Consulta |
-| --- | --- | --- | --- | --- | --- | --- |
-| Consultar ocorrências/mapa | Módulo liberado | Módulo liberado | Módulo liberado | Registros próprios e tarefas em /campo | Módulo liberado | Módulo liberado |
-| Registrar ocorrência | Sim | Sim | Sim | Sim | Sim | Não |
-| Classificar/recusar | Sim | Sim | Sim | Não | Não | Não |
-| Programar/cancelar OS, plano, almoxarifado/notas | Sim | Sim | Não | Não | Não | Não |
-| Executar OS | Não | Não | Não | Equipe/operador autorizado | Não | Não |
-| Validar/reabrir | Sim | Sim | Não | Não | Sim | Não |
-| Cadastros, usuários, configuração e auditoria global | Sim | Não | Não | Não | Não | Não |
+| Ação                                                 | Administrador   | Gestor          | Triagem         | Campo                                  | Fiscalização    | Consulta        |
+| ---------------------------------------------------- | --------------- | --------------- | --------------- | -------------------------------------- | --------------- | --------------- |
+| Consultar ocorrências/mapa                           | Módulo liberado | Módulo liberado | Módulo liberado | Registros próprios e tarefas em /campo | Módulo liberado | Módulo liberado |
+| Registrar ocorrência                                 | Sim             | Sim             | Sim             | Sim                                    | Sim             | Não             |
+| Classificar/recusar                                  | Sim             | Sim             | Sim             | Não                                    | Não             | Não             |
+| Programar/cancelar OS, plano, almoxarifado/notas     | Sim             | Sim             | Não             | Não                                    | Não             | Não             |
+| Executar OS                                          | Não             | Não             | Não             | Equipe/operador autorizado             | Não             | Não             |
+| Validar/reabrir                                      | Sim             | Sim             | Não             | Não                                    | Sim             | Não             |
+| Cadastros, usuários, configuração e auditoria global | Sim             | Não             | Não             | Não                                    | Não             | Não             |
 
 Reordenação do Kanban: administrador, gestor, triagem e fiscalização; limites WIP: administrador/gestor. Campo registra ocorrências, mas anexos de ocorrência são restritos aos registros próprios; anexos de OS dependem de autorização à ordem. Listas gerais de ocorrências são consultáveis pelos perfis; restrição de equipe/operador se aplica às OS, suas ações/anexos e projeções autorizadas em painel, planejamento e push.
 
@@ -147,12 +147,12 @@ WIP por etapa é **global**, salvo em settings; zero é ilimitado. Administrador
 
 Configuração/ordenação compara revision; conjunto de cartões precisa ser completo e atual. Ações podem conferir kanban_expected_status. Esses controles são complementados por version nas edições de ocorrência/OS; planos também retornam version, sem API de edição. Proteção distribuída de WIP permanece pendente.
 
-| Indicador | Semântica atual |
-| --- | --- |
-| OS em andamento | OS não concluídas/canceladas, incluindo espera, validação e devolução |
-| Entregas em 30 dias | OS **atualmente CONCLUIDA**, com completed_at nos últimos 30 dias; uma por OS |
-| OS mais antiga | Maior idade desde criação inicial entre OS abertas |
-| Ciclo médio em 30 dias | Média criação inicial → completed_at das OS atualmente concluídas no período |
+| Indicador              | Semântica atual                                                               |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| OS em andamento        | OS não concluídas/canceladas, incluindo espera, validação e devolução         |
+| Entregas em 30 dias    | OS **atualmente CONCLUIDA**, com completed_at nos últimos 30 dias; uma por OS |
+| OS mais antiga         | Maior idade desde criação inicial entre OS abertas                            |
+| Ciclo médio em 30 dias | Média criação inicial → completed_at das OS atualmente concluídas no período  |
 
 Setor/equipe restringem métricas; busca/prioridade/ocultação de encerradas não mudam seu histórico considerado. Reprogramação preserva criação; recusadas/canceladas não contam entregas, reabertura retira a OS das concluídas. Datas inválidas/ausentes não geram ciclos/idades, ausência de amostra mostra traço. SLA não é previsão estatística. Referência conceitual: [The Kanban Guide](https://kanbanguides.org/the-kanban-guide/2025.5/).
 
@@ -180,17 +180,17 @@ Push opcional: HTTPS, VAPID, compatibilidade e permissão do usuário. Assinatur
 
 **Status: IMPLEMENTADO; modularização PARCIAL.** Monólito modular em evolução, um processo Express; React 19/TypeScript/Vite; Node 24+; Leaflet/OSM; SQLite ou PostgreSQL/PostGIS; disco local e Web Push. Não há microserviços. Extração incremental em server/modules/{concurrency,listing,files}, src/modules/{map,administration} e src/shared; entrypoints ainda concentram parte do domínio.
 
-| Responsabilidade | Código vigente |
-| --- | --- |
-| Interface de gestão/integração | src/main.tsx, src/styles.css |
-| Painel/fluxo | OperationsDashboard, WorkflowGuide, DispatchContext |
-| Planejamento/Kanban | PlanningPanel, PlanningPlanDialog, TeamKanban, KanbanMoveDialog; modelos em shared/ |
-| Campo e rascunhos | src/Operator.tsx, src/field-storage.ts, public/sw.js |
-| Setor, estoque e notas | SectorControl, InventoryPanel, InvoicePanel |
-| HTTP, autorização, transações | server/app.js |
-| Estados, permissões, credenciais | server/domain.js, server/domain/workflow.js |
-| Módulos operacionais | server/planning.js, kanban.js, field.js, inventory.js, invoices.js, sector-control.js |
-| Persistência/seed | server/db.js, server/schema.sql, server/seed.js |
+| Responsabilidade                 | Código vigente                                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| Interface de gestão/integração   | src/main.tsx, src/styles.css                                                          |
+| Painel/fluxo                     | OperationsDashboard, WorkflowGuide, DispatchContext                                   |
+| Planejamento/Kanban              | PlanningPanel, PlanningPlanDialog, TeamKanban, KanbanMoveDialog; modelos em shared/   |
+| Campo e rascunhos                | src/Operator.tsx, src/field-storage.ts, public/sw.js                                  |
+| Setor, estoque e notas           | SectorControl, InventoryPanel, InvoicePanel                                           |
+| HTTP, autorização, transações    | server/app.js                                                                         |
+| Estados, permissões, credenciais | server/domain.js, server/domain/workflow.js                                           |
+| Módulos operacionais             | server/planning.js, kanban.js, field.js, inventory.js, invoices.js, sector-control.js |
+| Persistência/seed                | server/db.js, server/schema.sql, server/seed.js                                       |
 
 users guarda perfil/equipe; sessions guarda hash do token e expiração. catalogs usa discriminador kind e atributos JSON em texto; secretaria/departamento/setor usam parent_id, categorias/equipes sector_id. API verifica tipos/vínculos. occurrences e orders mantêm campos indexáveis e atributos JSON; order_occurrences liga N:N. action_plans/action_plan_occurrences preservam reserva única. evidence é polimórfica por tipo/ID; consumption preserva custos; order_equipment liga recursos; invoices/invoice_items/inventory_movements registram notas/estoque. audit_logs é histórico imutável pela interface, settings configura município/raio/quadro; client_requests/push_subscriptions/push_jobs suportam campo. assets/maintenance_plans são tabelas reservadas sem telas/geração preventiva automática.
 
@@ -208,17 +208,17 @@ Optimistic locking das edições de ocorrência/OS **IMPLEMENTADO** no checkpoin
 
 ## 11. Estado atual, limitações e prioridades
 
-| Tema | Status | Situação |
-| --- | --- | --- |
-| State machine, fluxo, recusa/devolução, planos e Kanban | IMPLEMENTADO | Regras vigentes acima, sem novas entidades P1 |
-| Documentação canônica | IMPLEMENTADO | Cinco documentos especializados/contextuais; consolidação registrada no Changelog |
-| Concorrência | PARCIAL | version obrigatório nas edições de ocorrência/OS; revision/etapa no quadro; estoque/WIP/numeração entre processos pendentes |
-| Estoque/custos | PARCIAL | Notas, movimentos e materiais; gestão completa P2 |
-| Offline | PARCIAL | Rascunho/reenvio manual; sincronização completa P3 |
-| PostgreSQL/PostGIS | PARCIAL | Adaptador e geom; homologação real pendente |
-| Modularização | PARCIAL | Módulos existentes, arquivos centrais grandes |
-| Capacidade/território | PARCIAL | Carga/WIP/agrupamento textual; jornada/geometria ampliada P1 |
-| Obras/intervenções/vias/mobilidade | PLANEJADO | Nenhuma entidade/módulo completo entregue |
+| Tema                                                    | Status       | Situação                                                                                                                    |
+| ------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| State machine, fluxo, recusa/devolução, planos e Kanban | IMPLEMENTADO | Regras vigentes acima, sem novas entidades P1                                                                               |
+| Documentação canônica                                   | IMPLEMENTADO | Cinco documentos especializados/contextuais; consolidação registrada no Changelog                                           |
+| Concorrência                                            | PARCIAL      | version obrigatório nas edições de ocorrência/OS; revision/etapa no quadro; estoque/WIP/numeração entre processos pendentes |
+| Estoque/custos                                          | PARCIAL      | Notas, movimentos e materiais; gestão completa P2                                                                           |
+| Offline                                                 | PARCIAL      | Rascunho/reenvio manual; sincronização completa P3                                                                          |
+| PostgreSQL/PostGIS                                      | PARCIAL      | Adaptador e geom; homologação real pendente                                                                                 |
+| Modularização                                           | PARCIAL      | Módulos existentes, arquivos centrais grandes                                                                               |
+| Capacidade/território                                   | PARCIAL      | Carga/WIP/agrupamento textual; jornada/geometria ampliada P1                                                                |
+| Obras/intervenções/vias/mobilidade                      | PLANEJADO    | Nenhuma entidade/módulo completo entregue                                                                                   |
 
 Bundle inicial reduzido de 584,21 para 318,55 kB (JS minificado); módulos carregados por demanda. Limites: escala horizontal sem proteção distribuída; arquivos locais; sem serviço S3/SSO ativado, portal cidadão, comunicação ao solicitante, app nativo, roteirização própria ou integração BC Digital/Waze/OSRM/Google Routes. Recuperação central de sessão e feedback uniforme pendentes. Observação de usuários reais e acessibilidade completa não realizadas. Piloto SQLite em instância única é diferente de recomendação de produção municipal.
 
@@ -249,7 +249,6 @@ Estimar membros ativos, horas/dias/jornada, duração de OS, compromissos, turno
 ### Relações e território — P1
 
 **Status: PLANEJADO.** Intervenções poderão agrupar ocorrências/OS, área/trecho/ativo, período, responsável, prioridade e geometria, com vínculo opcional a obra. Obras poderão reunir intervenções, OS, documentos e os recursos P2 de cronograma/custos/fiscalização/medições. Identificar conflitos espaciais e temporais entre intervenções, consultar camadas por viewport/bbox e permitir correção humana de associações automáticas. A modularização deve preparar esses módulos sem tornar obra obrigatória para manutenção simples.
-
 
 ### Medições — P2
 

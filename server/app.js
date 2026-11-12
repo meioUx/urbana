@@ -1,10 +1,21 @@
-import {registerOnboarding,onboardingState} from './onboarding.js';
-import {MASTER_EMAIL,isMasterUser,canPerformAction,moduleCatalog,defaultModules,hasModuleAccess,apiModules} from '../shared/authorization.mjs';
-import {userModules,saveModules} from './user-permissions.js';
+import { registerOnboarding, onboardingState } from "./onboarding.js";
+import {
+  MASTER_EMAIL,
+  isMasterUser,
+  canPerformAction,
+  moduleCatalog,
+  defaultModules,
+  hasModuleAccess,
+  apiModules,
+} from "../shared/authorization.mjs";
+import { userModules, saveModules } from "./user-permissions.js";
 import { createUploadGuard } from "./modules/files/upload-limit.js";
 import { createFileStorage } from "./modules/files/storage.js";
 import { listRecords } from "./modules/listing/index.js";
-import { assertExpectedVersion, updateVersioned } from "./modules/concurrency/index.js";
+import {
+  assertExpectedVersion,
+  updateVersioned,
+} from "./modules/concurrency/index.js";
 import { registerField, queueOrderNotification } from "./field.js";
 import { registerSectorControl } from "./sector-control.js";
 import { registerPlanning } from "./planning.js";
@@ -99,7 +110,10 @@ const kinds = [
   "equipamentos",
 ];
 
-export function createApp(db, { storage = createFileStorage(), maxConcurrentUploads = 4 } = {}) {
+export function createApp(
+  db,
+  { storage = createFileStorage(), maxConcurrentUploads = 4 } = {},
+) {
   const app = express();
   const uploadGuard = createUploadGuard(maxConcurrentUploads);
   const kanban = kanbanService(db, fail);
@@ -129,26 +143,60 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
     (fn, write = false) =>
     async (req, res, next) => {
       const task = queue.then(async () => {
-        if (write) { req.rollbackFiles = []; await db.exec("BEGIN"); }
+        if (write) {
+          req.rollbackFiles = [];
+          await db.exec("BEGIN");
+        }
         try {
           // Recheck inside the request queue so revocations take effect before writes.
-          if(req.user) {
-          const currentUser=await db.get('SELECT id,name,email,role,team_id FROM users WHERE id=?',[req.user.id]);
-          req.user={...currentUser,modules:await userModules(db,currentUser)};
-          if(req.requiredAction&&!canPerformAction(req.user,req.requiredAction))fail(403,'Seu perfil não permite esta ação.');
-          const required=apiModules(req.path,req.method);
-          if(required && !required.some(m=>hasModuleAccess(req.user,m)))fail(403,'Módulo não autorizado.');
-          if(req.user.role==='Consulta' && !['GET','HEAD'].includes(req.method) && !req.path.startsWith('/api/auth/') && req.path!=='/api/onboarding')fail(403,'Perfil somente leitura.');
+          if (req.user) {
+            const currentUser = await db.get(
+              "SELECT id,name,email,role,team_id FROM users WHERE id=?",
+              [req.user.id],
+            );
+            req.user = {
+              ...currentUser,
+              modules: await userModules(db, currentUser),
+            };
+            if (
+              req.requiredAction &&
+              !canPerformAction(req.user, req.requiredAction)
+            )
+              fail(403, "Seu perfil não permite esta ação.");
+            const required = apiModules(req.path, req.method);
+            if (required && !required.some((m) => hasModuleAccess(req.user, m)))
+              fail(403, "Módulo não autorizado.");
+            if (
+              req.user.role === "Consulta" &&
+              !["GET", "HEAD"].includes(req.method) &&
+              !req.path.startsWith("/api/auth/") &&
+              req.path !== "/api/onboarding"
+            )
+              fail(403, "Perfil somente leitura.");
           }
           const wip = write ? await kanban.snapshot() : null;
           if (write && req.body?.kanban_expected_status) {
-            const match = req.path.match(/^\/api\/(ocorrencias|ordens-servico)\/([^/]+)\//);
+            const match = req.path.match(
+              /^\/api\/(ocorrencias|ordens-servico)\/([^/]+)\//,
+            );
             const ids = match ? [match[2]] : req.body.occurrence_ids;
-            if (ids) for (const id of ids) {
-              const table = match?.[1] === "ordens-servico" ? "orders" : "occurrences";
-              const current = await db.get(`SELECT status FROM ${table} WHERE id=?`, [id]);
-              if (!current || current.status !== req.body.kanban_expected_status) fail(409, "O cartão mudou de etapa. Atualize o quadro antes de movimentar.");
-            }
+            if (ids)
+              for (const id of ids) {
+                const table =
+                  match?.[1] === "ordens-servico" ? "orders" : "occurrences";
+                const current = await db.get(
+                  `SELECT status FROM ${table} WHERE id=?`,
+                  [id],
+                );
+                if (
+                  !current ||
+                  current.status !== req.body.kanban_expected_status
+                )
+                  fail(
+                    409,
+                    "O cartão mudou de etapa. Atualize o quadro antes de movimentar.",
+                  );
+              }
           }
           const result = await fn(req, res);
           if (write) await kanban.enforce(wip);
@@ -157,7 +205,16 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         } catch (e) {
           if (write) {
             await db.exec("ROLLBACK");
-            for (const key of req.rollbackFiles) {try {await storage.delete(key);} catch(cleanupError) {console.error("Falha ao limpar arquivo após rollback.", cleanupError);}}
+            for (const key of req.rollbackFiles) {
+              try {
+                await storage.delete(key);
+              } catch (cleanupError) {
+                console.error(
+                  "Falha ao limpar arquivo após rollback.",
+                  cleanupError,
+                );
+              }
+            }
           }
           throw e;
         }
@@ -194,14 +251,20 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       after ? JSON.stringify(after) : null,
       now(),
     ]);
-  const allow=(action)=>(req,res,next)=>{
-    req.requiredAction=action;
-    return canPerformAction(req.user,action)?next():res.status(403).json({error:'Seu perfil não permite esta ação.'});
+  const allow = (action) => (req, res, next) => {
+    req.requiredAction = action;
+    return canPerformAction(req.user, action)
+      ? next()
+      : res.status(403).json({ error: "Seu perfil não permite esta ação." });
   };
   const accessOrder = async (req, id) => {
     const o = await entity("orders", id);
     if (!canAccessOrder(req.user, o))
-      failCode(403, "Esta ordem pertence a outra equipe.", "ORDER_NOT_ACCESSIBLE");
+      failCode(
+        403,
+        "Esta ordem pertence a outra equipe.",
+        "ORDER_NOT_ACCESSIBLE",
+      );
     return o;
   };
   const clientRequest = (userId, requestId) =>
@@ -267,7 +330,6 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         { status: old.status },
         { status: resulting },
       );
-
     }
   };
   const loginAttempts = new Map();
@@ -336,7 +398,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         [tokenHash(token), now()],
       );
       if (!u) return res.status(401).json({ error: "Sessão expirada." });
-      req.user = {...u, modules:await userModules(db,u)};
+      req.user = { ...u, modules: await userModules(db, u) };
       req.sessionToken = tokenHash(token);
       next();
     } catch (e) {
@@ -347,13 +409,20 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
     "/api/auth/me",
     route((req) => ({ user: req.user })),
   );
-  app.use('/api', (req,res,next)=>{
-    const required=apiModules(req.path,req.method);
-    if(required && !required.some(m=>hasModuleAccess(req.user,m)))return res.status(403).json({error:'Módulo não autorizado.'});
-    if(req.user.role==='Consulta' && !['GET','HEAD'].includes(req.method) && !req.path.startsWith('/auth/') && req.path!=='/onboarding')return res.status(403).json({error:'Perfil somente leitura.'});
+  app.use("/api", (req, res, next) => {
+    const required = apiModules(req.path, req.method);
+    if (required && !required.some((m) => hasModuleAccess(req.user, m)))
+      return res.status(403).json({ error: "Módulo não autorizado." });
+    if (
+      req.user.role === "Consulta" &&
+      !["GET", "HEAD"].includes(req.method) &&
+      !req.path.startsWith("/auth/") &&
+      req.path !== "/onboarding"
+    )
+      return res.status(403).json({ error: "Perfil somente leitura." });
     next();
   });
-  registerOnboarding(app,db,{route,fail});
+  registerOnboarding(app, db, { route, fail });
   kanban.register(app, { route, audit, allow });
   app.post(
     "/api/auth/logout",
@@ -370,7 +439,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       );
       return {
         user: req.user,
-        onboarding:await onboardingState(db,req.user),
+        onboarding: await onboardingState(db, req.user),
         catalogs: (await db.all("SELECT * FROM catalogs")).map(unpack),
         settings,
         kanban: await kanban.read(),
@@ -384,18 +453,37 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       };
     }),
   );
-  const listOccurrences = req => listRecords(db, "occurrences", req.query, req.user);
-  const planningModule = registerPlanning(app, db, { route, allow, audit, fail });
+  const listOccurrences = (req) =>
+    listRecords(db, "occurrences", req.query, req.user);
+  const planningModule = registerPlanning(app, db, {
+    route,
+    allow,
+    audit,
+    fail,
+  });
   registerField(app, db, { route, fail });
   registerSectorControl(app, db, { route, allow });
   registerInventory(app, db, { route, allow, audit, fail, now });
-  const invoiceModule = registerInvoices(app, db, { route, allow, audit, fail, accessOrder, now, storage, uploadGuard });
+  const invoiceModule = registerInvoices(app, db, {
+    route,
+    allow,
+    audit,
+    fail,
+    accessOrder,
+    now,
+    storage,
+    uploadGuard,
+  });
   app.get("/api/ocorrencias", route(listOccurrences));
   app.get(
     "/api/mapa/ocorrencias",
     route(async (req) => ({
       type: "FeatureCollection",
-      features: (await listRecords(db, "occurrences", req.query, req.user, {paginate:false})).map((r) => ({
+      features: (
+        await listRecords(db, "occurrences", req.query, req.user, {
+          paginate: false,
+        })
+      ).map((r) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [r.lng, r.lat] },
         properties: r,
@@ -416,7 +504,8 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         .map((o) => ({ ...o, distance: distance(point, o) }))
         .filter(
           (o) =>
-            o.distance <= settings.duplicate_radius && !["CANCELADA", "RECUSADA"].includes(o.status),
+            o.distance <= settings.duplicate_radius &&
+            !["CANCELADA", "RECUSADA"].includes(o.status),
         )
         .sort((a, b) => a.distance - b.distance);
     }),
@@ -435,7 +524,10 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         if (previous) {
           // A link already registered with this key is replayed, never turned into a new occurrence.
           if (previous.entity_type === "occurrence_link")
-            return { ...(await entity("occurrences", previous.entity_id)), linked: true };
+            return {
+              ...(await entity("occurrences", previous.entity_id)),
+              linked: true,
+            };
           if (previous.entity_type !== "occurrence") requestIdReused();
           return entity("occurrences", previous.entity_id);
         }
@@ -460,7 +552,11 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       if (data.duplicate_action === "link") {
         const target = active.find((o) => o.id === data.duplicate_id);
         if (!target)
-          failCode(400, "Vínculo de duplicidade inválido.", "INVALID_DUPLICATE_LINK");
+          failCode(
+            400,
+            "Vínculo de duplicidade inválido.",
+            "INVALID_DUPLICATE_LINK",
+          );
         await audit(
           req,
           "occurrence",
@@ -470,7 +566,12 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           { description: data.description, origin: data.origin },
         );
         if (data.request_id)
-          await saveClientRequest(req.user.id, data.request_id, "occurrence_link", target.id);
+          await saveClientRequest(
+            req.user.id,
+            data.request_id,
+            "occurrence_link",
+            target.id,
+          );
         return { ...target, linked: true };
       }
       const id = randomUUID(),
@@ -507,16 +608,74 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
     }, true),
   );
   // Lightweight operational details, requested only when a territorial point opens.
-  app.get("/api/mapa/ocorrencias/:id/resumo", route(async (req) => {
-    const occurrence = await entity("occurrences", req.params.id);
-    const linked = (await db.all("SELECT o.* FROM orders o JOIN order_occurrences r ON r.order_id=o.id WHERE r.occurrence_id=? ORDER BY o.created_at DESC,o.id", [occurrence.id])).map(unpack).filter(o => canAccessOrder(req.user, o));
-    return { code: occurrence.code, address: occurrence.address, orders: await Promise.all(linked.map(async o => {
-      const photos = (await evidence("order", o.id)).filter(e => e.mime.startsWith("image/") && evidenceTime(e) >= (o.reprogrammed_at || o.created_at)).sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
-      const photo = stage => { const e = photos.find(e => e.stage === stage && (stage !== "depois" || evidenceTime(e) >= [o.started_at, o.reopened_at, o.reprogrammed_at, o.created_at].filter(Boolean).sort().at(-1))); return e ? `/api/anexos/${e.id}` : null; };
-      const team = o.team_id ? unpack(await db.get("SELECT * FROM catalogs WHERE id=?", [o.team_id])) : null;
-      return { code: o.code, started_at: o.started_at || null, attendance_at: o.finished_at || o.scheduled_at || null, completed_at: o.completed_at || null, expected_completion_at: o.due_at || null, team: team?.name || null, before: photo("antes"), after: photo("depois") };
-    })) };
-  }));
+  app.get(
+    "/api/mapa/ocorrencias/:id/resumo",
+    route(async (req) => {
+      const occurrence = await entity("occurrences", req.params.id);
+      const linked = (
+        await db.all(
+          "SELECT o.* FROM orders o JOIN order_occurrences r ON r.order_id=o.id WHERE r.occurrence_id=? ORDER BY o.created_at DESC,o.id",
+          [occurrence.id],
+        )
+      )
+        .map(unpack)
+        .filter((o) => canAccessOrder(req.user, o));
+      return {
+        code: occurrence.code,
+        address: occurrence.address,
+        orders: await Promise.all(
+          linked.map(async (o) => {
+            const photos = (await evidence("order", o.id))
+              .filter(
+                (e) =>
+                  e.mime.startsWith("image/") &&
+                  evidenceTime(e) >= (o.reprogrammed_at || o.created_at),
+              )
+              .sort(
+                (a, b) =>
+                  b.created_at.localeCompare(a.created_at) ||
+                  b.id.localeCompare(a.id),
+              );
+            const photo = (stage) => {
+              const e = photos.find(
+                (e) =>
+                  e.stage === stage &&
+                  (stage !== "depois" ||
+                    evidenceTime(e) >=
+                      [
+                        o.started_at,
+                        o.reopened_at,
+                        o.reprogrammed_at,
+                        o.created_at,
+                      ]
+                        .filter(Boolean)
+                        .sort()
+                        .at(-1)),
+              );
+              return e ? `/api/anexos/${e.id}` : null;
+            };
+            const team = o.team_id
+              ? unpack(
+                  await db.get("SELECT * FROM catalogs WHERE id=?", [
+                    o.team_id,
+                  ]),
+                )
+              : null;
+            return {
+              code: o.code,
+              started_at: o.started_at || null,
+              attendance_at: o.finished_at || o.scheduled_at || null,
+              completed_at: o.completed_at || null,
+              expected_completion_at: o.due_at || null,
+              team: team?.name || null,
+              before: photo("antes"),
+              after: photo("depois"),
+            };
+          }),
+        ),
+      };
+    }),
+  );
   app.get(
     "/api/ocorrencias/:id",
     route(async (req) => {
@@ -553,7 +712,10 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
     await catalog(data.sector_id, "setores");
     if (!cat.subcategories.includes(data.subcategory))
       fail(400, "Subcategoria inválida.");
-    await updateVersioned(db, "occurrences", old,
+    await updateVersioned(
+      db,
+      "occurrences",
+      old,
       "category_id=?,sector_id=?,priority=?,status=?,updated_at=?,data=?",
       [
         data.category_id,
@@ -575,37 +737,80 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
 
     return entity("occurrences", old.id);
   };
-  const classify = route(req => classifyOccurrence(req, req.params.id, req.body), true);
+  const classify = route(
+    (req) => classifyOccurrence(req, req.params.id, req.body),
+    true,
+  );
   app.post("/api/ocorrencias/:id/classificar", allow("classify"), classify);
   app.patch("/api/ocorrencias/:id", allow("classify"), classify);
   app.post("/api/ocorrencias/:id/encaminhar", allow("classify"), classify);
-  app.post("/api/ocorrencias/:id/recusar", allow("classify"), route(async req => {
-    const old = await entity("occurrences", req.params.id);
-    assertExpectedVersion(old, req.body.version);
-    if (!canTransition(old.status, status.RECUSADA, "occurrence")) fail(409, "Só é possível recusar uma demanda antes da programação.");
-    const { reason } = z.object({ reason: text }).parse(req.body);
-    const links = await db.all("SELECT order_id FROM order_occurrences WHERE occurrence_id=?", [old.id]);
-    if (links.length) fail(409, "Esta demanda já possui ordem de serviço. Revise a ordem antes de alterar o atendimento.");
-    const stamp = now();
-    const data = { ...old, status: status.RECUSADA, updated_at: stamp, rejection_reason: reason, rejected_at: stamp, rejected_by: req.user.name };
-    await updateVersioned(db, "occurrences", old, "status=?,updated_at=?,data=?", [status.RECUSADA, stamp, JSON.stringify(data)]);
-    await audit(req, "occurrence", old.id, "Demanda recusada na triagem", old, data);
+  app.post(
+    "/api/ocorrencias/:id/recusar",
+    allow("classify"),
+    route(async (req) => {
+      const old = await entity("occurrences", req.params.id);
+      assertExpectedVersion(old, req.body.version);
+      if (!canTransition(old.status, status.RECUSADA, "occurrence"))
+        fail(409, "Só é possível recusar uma demanda antes da programação.");
+      const { reason } = z.object({ reason: text }).parse(req.body);
+      const links = await db.all(
+        "SELECT order_id FROM order_occurrences WHERE occurrence_id=?",
+        [old.id],
+      );
+      if (links.length)
+        fail(
+          409,
+          "Esta demanda já possui ordem de serviço. Revise a ordem antes de alterar o atendimento.",
+        );
+      const stamp = now();
+      const data = {
+        ...old,
+        status: status.RECUSADA,
+        updated_at: stamp,
+        rejection_reason: reason,
+        rejected_at: stamp,
+        rejected_by: req.user.name,
+      };
+      await updateVersioned(
+        db,
+        "occurrences",
+        old,
+        "status=?,updated_at=?,data=?",
+        [status.RECUSADA, stamp, JSON.stringify(data)],
+      );
+      await audit(
+        req,
+        "occurrence",
+        old.id,
+        "Demanda recusada na triagem",
+        old,
+        data,
+      );
 
-    return entity("occurrences", old.id);
-  }, true));
+      return entity("occurrences", old.id);
+    }, true),
+  );
   app.get(
     "/api/ordens-servico",
     route(async (req) => {
       const result = await listRecords(db, "orders", req.query, req.user);
       const rows = Array.isArray(result) ? result : result.items;
-      const links = rows.length ? await db.all(`SELECT order_id,occurrence_id FROM order_occurrences WHERE order_id IN (${rows.map(()=>"?").join(",")})`, rows.map(o=>o.id)) : [];
+      const links = rows.length
+        ? await db.all(
+            `SELECT order_id,occurrence_id FROM order_occurrences WHERE order_id IN (${rows.map(() => "?").join(",")})`,
+            rows.map((o) => o.id),
+          )
+        : [];
       const byOrder = new Map();
       for (const link of links) {
         if (!byOrder.has(link.order_id)) byOrder.set(link.order_id, []);
         byOrder.get(link.order_id).push(link.occurrence_id);
       }
-      const items = rows.map(o=>({...o,occurrence_ids:byOrder.get(o.id)||[]}));
-      return Array.isArray(result) ? items : {...result,items};
+      const items = rows.map((o) => ({
+        ...o,
+        occurrence_ids: byOrder.get(o.id) || [],
+      }));
+      return Array.isArray(result) ? items : { ...result, items };
     }),
   );
   app.post(
@@ -621,14 +826,28 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           scheduled_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           responsible: text,
           notes: z.string().max(3000).default(""),
-          triage: z.object({ version: z.number().int().positive(), priority: z.enum(priorities), sector_id: text, category_id: text, subcategory: text }).optional(),
-          new_plan: z.object({ objective: z.string().trim().min(5).max(3000), responsible: z.string().trim().min(1).max(200) }).optional(),
+          triage: z
+            .object({
+              version: z.number().int().positive(),
+              priority: z.enum(priorities),
+              sector_id: text,
+              category_id: text,
+              subcategory: text,
+            })
+            .optional(),
+          new_plan: z
+            .object({
+              objective: z.string().trim().min(5).max(3000),
+              responsible: z.string().trim().min(1).max(200),
+            })
+            .optional(),
         })
         .parse(req.body);
       if (new Set(data.occurrence_ids).size !== data.occurrence_ids.length)
         fail(400, "Ocorrências repetidas.");
       if (data.triage) {
-        if (data.occurrence_ids.length !== 1) fail(400, "A triagem integrada deve tratar uma ocorrência por vez.");
+        if (data.occurrence_ids.length !== 1)
+          fail(400, "A triagem integrada deve tratar uma ocorrência por vez.");
         await classifyOccurrence(req, data.occurrence_ids[0], data.triage);
       }
       const occurrences = [];
@@ -658,8 +877,14 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           fail(400, "Selecione um operador da equipe escolhida.");
       }
       if (data.new_plan) {
-        if (data.plan_id) fail(400, "Escolha um plano existente ou crie um novo plano.");
-        const createdPlan = await planningModule.createPlan(req, { occurrence_ids: data.occurrence_ids, objective: data.new_plan.objective, responsible: data.new_plan.responsible, scheduled_at: data.scheduled_at });
+        if (data.plan_id)
+          fail(400, "Escolha um plano existente ou crie um novo plano.");
+        const createdPlan = await planningModule.createPlan(req, {
+          occurrence_ids: data.occurrence_ids,
+          objective: data.new_plan.objective,
+          responsible: data.new_plan.responsible,
+          scheduled_at: data.scheduled_at,
+        });
         data.plan_id = createdPlan.id;
         delete data.new_plan;
       }
@@ -706,18 +931,21 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       const stamp = now(),
         id = randomUUID(),
         protocol = await code("orders", "OS");
-      await db.run("INSERT INTO orders(id,code,sector_id,team_id,status,priority,due_at,created_at,updated_at,data) VALUES(?,?,?,?,?,?,?,?,?,?)", [
-        id,
-        protocol,
-        first.sector_id,
-        data.team_id,
-        "PROGRAMADA",
-        priority,
-        due,
-        stamp,
-        stamp,
-        JSON.stringify(data),
-      ]);
+      await db.run(
+        "INSERT INTO orders(id,code,sector_id,team_id,status,priority,due_at,created_at,updated_at,data) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        [
+          id,
+          protocol,
+          first.sector_id,
+          data.team_id,
+          "PROGRAMADA",
+          priority,
+          due,
+          stamp,
+          stamp,
+          JSON.stringify(data),
+        ],
+      );
       for (const o of occurrences)
         await db.run("INSERT INTO order_occurrences VALUES(?,?)", [id, o.id]);
       await audit(req, "order", id, "Ordem de serviço programada", null, data);
@@ -750,8 +978,18 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         materials: await db.all("SELECT * FROM consumption WHERE order_id=?", [
           o.id,
         ]),
-        invoices: await Promise.all((await db.all("SELECT * FROM invoices WHERE order_id=? ORDER BY created_at DESC", [o.id])).map(invoiceModule.hydrateInvoice)),
-        cost_by_stage: await db.all("SELECT stage,SUM(quantity*unit_cost) AS value FROM inventory_movements WHERE order_id=? AND type='saida' GROUP BY stage", [o.id]),
+        invoices: await Promise.all(
+          (
+            await db.all(
+              "SELECT * FROM invoices WHERE order_id=? ORDER BY created_at DESC",
+              [o.id],
+            )
+          ).map(invoiceModule.hydrateInvoice),
+        ),
+        cost_by_stage: await db.all(
+          "SELECT stage,SUM(quantity*unit_cost) AS value FROM inventory_movements WHERE order_id=? AND type='saida' GROUP BY stage",
+          [o.id],
+        ),
         equipment: await db.all(
           "SELECT equipment_id FROM order_equipment WHERE order_id=?",
           [o.id],
@@ -767,7 +1005,9 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       allow(permission),
       route(async (req) => {
         const sync = fieldSyncActions.includes(action);
-        const requestId = sync ? optionalRequestId(req.body.request_id) : undefined;
+        const requestId = sync
+          ? optionalRequestId(req.body.request_id)
+          : undefined;
         if (requestId) {
           const previous = await clientRequest(req.user.id, requestId);
           if (previous) {
@@ -786,8 +1026,15 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         const capturedAt = sync ? parseCapturedAt(req.body.captured_at) : null;
         const old = await accessOrder(req, req.params.id);
         assertExpectedVersion(old, req.body.version);
-        if (!from.includes(old.status) || !canTransition(old.status, to, "order"))
-          failCode(409, "Ação incompatível com o status atual.", "INVALID_STATUS");
+        if (
+          !from.includes(old.status) ||
+          !canTransition(old.status, to, "order")
+        )
+          failCode(
+            409,
+            "Ação incompatível com o status atual.",
+            "INVALID_STATUS",
+          );
         const data = { ...old };
         const stamp = now();
         const workedAt = capturedAt ?? stamp;
@@ -811,7 +1058,11 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
                   evidenceTime(e) >= (old.reprogrammed_at || old.created_at),
               )
             )
-              failCode(400, "Anexe uma foto antes de iniciar a execução.", "BEFORE_PHOTO_REQUIRED");
+              failCode(
+                400,
+                "Anexe uma foto antes de iniciar a execução.",
+                "BEFORE_PHOTO_REQUIRED",
+              );
           }
         }
         if (action === "concluir") {
@@ -844,9 +1095,17 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
                       .at(-1),
               )
             )
-              failCode(400, "Anexe uma foto depois do serviço.", "AFTER_PHOTO_REQUIRED");
+              failCode(
+                400,
+                "Anexe uma foto depois do serviço.",
+                "AFTER_PHOTO_REQUIRED",
+              );
             if (cat.require_material && !materials.length)
-              failCode(400, "Registre o material utilizado antes de concluir.", "MATERIAL_REQUIRED");
+              failCode(
+                400,
+                "Registre o material utilizado antes de concluir.",
+                "MATERIAL_REQUIRED",
+              );
           }
         }
         if (action === "validar") {
@@ -870,7 +1129,10 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           data.reason = z.object({ reason: text }).parse(req.body).reason;
           data.completed_at = null;
         }
-        await updateVersioned(db, "orders", old,
+        await updateVersioned(
+          db,
+          "orders",
+          old,
           "status=?,updated_at=?,data=?",
           [to, stamp, JSON.stringify(data)],
         );
@@ -886,7 +1148,12 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         if (action === "reabrir")
           await queueOrderNotification(db, await entity("orders", old.id));
         if (requestId)
-          await saveClientRequest(req.user.id, requestId, "order_transition", old.id);
+          await saveClientRequest(
+            req.user.id,
+            requestId,
+            "order_transition",
+            old.id,
+          );
         return entity("orders", old.id);
       }, true),
     );
@@ -937,9 +1204,14 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         arrival_location: null,
         reason: null,
         reopened_at: null,
-        ...("assumed_by" in old ? { assumed_by: null, assumed_by_name: null } : {}),
+        ...("assumed_by" in old
+          ? { assumed_by: null, assumed_by_name: null }
+          : {}),
       };
-      await updateVersioned(db, "orders", old,
+      await updateVersioned(
+        db,
+        "orders",
+        old,
         "team_id=?,status='PROGRAMADA',updated_at=?,data=?",
         [team.id, now(), JSON.stringify(updated)],
       );
@@ -986,8 +1258,11 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         if (previous) {
           const consumption =
             previous.entity_type === "consumption" &&
-            (await db.get("SELECT order_id FROM consumption WHERE id=?", [previous.entity_id]));
-          if (!consumption || consumption.order_id !== req.params.id) requestIdReused();
+            (await db.get("SELECT order_id FROM consumption WHERE id=?", [
+              previous.entity_id,
+            ]));
+          if (!consumption || consumption.order_id !== req.params.id)
+            requestIdReused();
           return { ok: true, replayed: true };
         }
       }
@@ -1003,16 +1278,49 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           .parse(req.body),
         mat = await catalog(data.material_id, "materiais");
       const balance = await inventoryBalance(db, data.material_id);
-      if (balance.controlled && data.quantity > balance.quantity) fail(409, "Saldo insuficiente no almoxarifado para registrar este consumo.");
+      if (balance.controlled && data.quantity > balance.quantity)
+        fail(
+          409,
+          "Saldo insuficiente no almoxarifado para registrar este consumo.",
+        );
       const unitCost = balance.averageCost || mat.unit_cost;
       const consumptionId = randomUUID();
-      await db.run("INSERT INTO consumption(id,order_id,material_id,quantity,unit_cost,created_at) VALUES(?,?,?,?,?,?)", [
-        consumptionId, o.id, data.material_id, data.quantity, unitCost, now(),
-      ]);
-      if (balance.controlled) await db.run("INSERT INTO inventory_movements(id,material_id,order_id,invoice_id,type,quantity,unit_cost,stage,notes,user_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", [randomUUID(), data.material_id, o.id, null, "saida", data.quantity, unitCost, "execucao", `Consumo na ${o.code}`, req.user.id, now()]);
-      await audit(req, "order", o.id, "Material registrado", null, capturedAt ? { ...data, captured_at: capturedAt } : data);
+      await db.run(
+        "INSERT INTO consumption(id,order_id,material_id,quantity,unit_cost,created_at) VALUES(?,?,?,?,?,?)",
+        [consumptionId, o.id, data.material_id, data.quantity, unitCost, now()],
+      );
+      if (balance.controlled)
+        await db.run(
+          "INSERT INTO inventory_movements(id,material_id,order_id,invoice_id,type,quantity,unit_cost,stage,notes,user_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+          [
+            randomUUID(),
+            data.material_id,
+            o.id,
+            null,
+            "saida",
+            data.quantity,
+            unitCost,
+            "execucao",
+            `Consumo na ${o.code}`,
+            req.user.id,
+            now(),
+          ],
+        );
+      await audit(
+        req,
+        "order",
+        o.id,
+        "Material registrado",
+        null,
+        capturedAt ? { ...data, captured_at: capturedAt } : data,
+      );
       if (requestId)
-        await saveClientRequest(req.user.id, requestId, "consumption", consumptionId);
+        await saveClientRequest(
+          req.user.id,
+          requestId,
+          "consumption",
+          consumptionId,
+        );
     }, true),
   );
   app.post(
@@ -1160,20 +1468,23 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
           const key = `uploads/${filename}`;
           await storage.save(key, b);
           req.rollbackFiles.push(key);
-          await db.run("INSERT INTO evidence(id,entity_type,entity_id,stage,filename,original_name,mime,user_id,created_at,lat,lng,captured_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", [
-            id,
-            type,
-            o.id,
-            stage,
-            filename,
-            req.file.originalname.slice(0, 200),
-            mime,
-            req.user.id,
-            now(),
-            point.lat,
-            point.lng,
-            capturedAt,
-          ]);
+          await db.run(
+            "INSERT INTO evidence(id,entity_type,entity_id,stage,filename,original_name,mime,user_id,created_at,lat,lng,captured_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+              id,
+              type,
+              o.id,
+              stage,
+              filename,
+              req.file.originalname.slice(0, 200),
+              mime,
+              req.user.id,
+              now(),
+              point.lat,
+              point.lng,
+              capturedAt,
+            ],
+          );
           await audit(req, type, o.id, `Evidência registrada: ${stage}`, null, {
             evidence_id: id,
             lat: point.lat,
@@ -1181,10 +1492,14 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
             ...(capturedAt ? { captured_at: capturedAt } : {}),
           });
           if (req.body.request_id)
-            await saveClientRequest(req.user.id, req.body.request_id, "evidence", id);
+            await saveClientRequest(
+              req.user.id,
+              req.body.request_id,
+              "evidence",
+              id,
+            );
           return { id };
         } catch (e) {
-
           throw e;
         }
       }, true),
@@ -1308,10 +1623,17 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         ])
       )
         fail(409, "E-mail já cadastrado.");
-      if(data.email.toLowerCase()===MASTER_EMAIL && data.role!=="Administrador")fail(400,"A conta master deve manter o perfil Administrador.");
-      const identity={email:data.email,role:data.role};
-      const modules=isMasterUser(identity)?moduleCatalog.map(m=>m.key):[...new Set(data.modules ?? defaultModules(data.role))];
-      if(modules.some(m=>!hasModuleAccess({...identity,modules},m)))fail(400,'Módulo incompatível com o perfil.');
+      if (
+        data.email.toLowerCase() === MASTER_EMAIL &&
+        data.role !== "Administrador"
+      )
+        fail(400, "A conta master deve manter o perfil Administrador.");
+      const identity = { email: data.email, role: data.role };
+      const modules = isMasterUser(identity)
+        ? moduleCatalog.map((m) => m.key)
+        : [...new Set(data.modules ?? defaultModules(data.role))];
+      if (modules.some((m) => !hasModuleAccess({ ...identity, modules }, m)))
+        fail(400, "Módulo incompatível com o perfil.");
       const id = randomUUID();
       await db.run("INSERT INTO users VALUES(?,?,?,?,?,?)", [
         id,
@@ -1321,7 +1643,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         data.role,
         data.team_id || null,
       ]);
-      await saveModules(db,{id,role:data.role},modules);
+      await saveModules(db, { id, role: data.role }, modules);
       await audit(req, "user", id, "Usuário criado", null, {
         modules,
         name: data.name,
@@ -1330,31 +1652,110 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       return { id };
     }, true),
   );
-  app.get('/api/users/:id/permissions',allow('admin'),route(async req=>{
-    const user=await entity('users',req.params.id);
-    return {user:{id:user.id,name:user.name,email:user.email,role:user.role,team_id:user.team_id},modules:await userModules(db,user),catalog:moduleCatalog};
-  }));
-  app.patch('/api/users/:id',allow('admin'),route(async req=>{
-    const old=await entity('users',req.params.id);
-    const data=z.object({name:text,email:z.string().email(),role:z.enum(roles),team_id:z.string().nullable(),modules:z.array(z.string())}).strict().parse(req.body);
-    if(data.email.toLowerCase()===MASTER_EMAIL && data.role!=="Administrador")fail(400,"A conta master deve manter o perfil Administrador.");
-    if(isMasterUser(old)) {
-      if(data.email.toLowerCase()!==MASTER_EMAIL || data.role!=="Administrador")fail(403,"O e-mail e o perfil da conta master de manutenção não podem ser alterados.");
-      data.modules=moduleCatalog.map(m=>m.key);
-    }
-    if(old.id===req.user.id && (data.role!==old.role || JSON.stringify([...data.modules].sort())!==JSON.stringify([...req.user.modules].sort())))fail(403,'Não é permitido alterar o próprio perfil ou módulos.');
-    if(data.modules.some(m=>!hasModuleAccess({...data,modules:data.modules},m)))fail(400,'Módulo incompatível com o perfil.');
-    if(data.role==='Equipe de Campo'&&!data.team_id)fail(400,'Selecione a equipe do usuário.');
-    if(data.team_id)await catalog(data.team_id,'equipes');
-    const duplicate=await db.get('SELECT id FROM users WHERE email=? AND id<>?',[data.email.toLowerCase(),old.id]);
-    if(duplicate)fail(409,'E-mail já cadastrado.');
-    const previous=await userModules(db,old);
-    await db.run('UPDATE users SET name=?,email=?,role=?,team_id=? WHERE id=?',[data.name,data.email.toLowerCase(),data.role,data.team_id,old.id]);
-    await saveModules(db,{id:old.id,role:data.role},[...new Set(data.modules)]);
-    await audit(req,'user',old.id,'Acessos do usuário atualizados',{name:old.name,role:old.role,team_id:old.team_id,modules:previous},data);
-    return {id:old.id};
-  },true));
-  app.patch('/api/users/:id/permissions',allow('admin'),route(async req=>{fail(400,'Utilize a edição de usuário com módulos compatíveis. Permissões funcionais não podem ser delegadas.');}));
+  app.get(
+    "/api/users/:id/permissions",
+    allow("admin"),
+    route(async (req) => {
+      const user = await entity("users", req.params.id);
+      return {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          team_id: user.team_id,
+        },
+        modules: await userModules(db, user),
+        catalog: moduleCatalog,
+      };
+    }),
+  );
+  app.patch(
+    "/api/users/:id",
+    allow("admin"),
+    route(async (req) => {
+      const old = await entity("users", req.params.id);
+      const data = z
+        .object({
+          name: text,
+          email: z.string().email(),
+          role: z.enum(roles),
+          team_id: z.string().nullable(),
+          modules: z.array(z.string()),
+        })
+        .strict()
+        .parse(req.body);
+      if (
+        data.email.toLowerCase() === MASTER_EMAIL &&
+        data.role !== "Administrador"
+      )
+        fail(400, "A conta master deve manter o perfil Administrador.");
+      if (isMasterUser(old)) {
+        if (
+          data.email.toLowerCase() !== MASTER_EMAIL ||
+          data.role !== "Administrador"
+        )
+          fail(
+            403,
+            "O e-mail e o perfil da conta master de manutenção não podem ser alterados.",
+          );
+        data.modules = moduleCatalog.map((m) => m.key);
+      }
+      if (
+        old.id === req.user.id &&
+        (data.role !== old.role ||
+          JSON.stringify([...data.modules].sort()) !==
+            JSON.stringify([...req.user.modules].sort()))
+      )
+        fail(403, "Não é permitido alterar o próprio perfil ou módulos.");
+      if (
+        data.modules.some(
+          (m) => !hasModuleAccess({ ...data, modules: data.modules }, m),
+        )
+      )
+        fail(400, "Módulo incompatível com o perfil.");
+      if (data.role === "Equipe de Campo" && !data.team_id)
+        fail(400, "Selecione a equipe do usuário.");
+      if (data.team_id) await catalog(data.team_id, "equipes");
+      const duplicate = await db.get(
+        "SELECT id FROM users WHERE email=? AND id<>?",
+        [data.email.toLowerCase(), old.id],
+      );
+      if (duplicate) fail(409, "E-mail já cadastrado.");
+      const previous = await userModules(db, old);
+      await db.run(
+        "UPDATE users SET name=?,email=?,role=?,team_id=? WHERE id=?",
+        [data.name, data.email.toLowerCase(), data.role, data.team_id, old.id],
+      );
+      await saveModules(db, { id: old.id, role: data.role }, [
+        ...new Set(data.modules),
+      ]);
+      await audit(
+        req,
+        "user",
+        old.id,
+        "Acessos do usuário atualizados",
+        {
+          name: old.name,
+          role: old.role,
+          team_id: old.team_id,
+          modules: previous,
+        },
+        data,
+      );
+      return { id: old.id };
+    }, true),
+  );
+  app.patch(
+    "/api/users/:id/permissions",
+    allow("admin"),
+    route(async (req) => {
+      fail(
+        400,
+        "Utilize a edição de usuário com módulos compatíveis. Permissões funcionais não podem ser delegadas.",
+      );
+    }),
+  );
   app.patch(
     "/api/settings",
     allow("admin"),
@@ -1384,7 +1785,7 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
   app.get(
     "/api/auditoria",
     allow("admin"),
-    route(req => listRecords(db, "audit_logs", req.query, req.user)),
+    route((req) => listRecords(db, "audit_logs", req.query, req.user)),
   );
   app.get(
     "/api/dashboard",
@@ -1398,8 +1799,18 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
       const mats = (await db.all("SELECT * FROM consumption")).filter((m) =>
         orders.some((o) => o.id === m.order_id),
       );
-      const stockCosts = (await db.all("SELECT * FROM inventory_movements WHERE type='saida' AND order_id IS NOT NULL")).filter((item) => orders.some((o) => o.id === item.order_id));
-      const costByStage = Object.entries(stockCosts.reduce((sum, item) => { sum[item.stage] = (sum[item.stage] || 0) + item.quantity * item.unit_cost; return sum; }, {})).map(([stage, value]) => ({ stage, value }));
+      const stockCosts = (
+        await db.all(
+          "SELECT * FROM inventory_movements WHERE type='saida' AND order_id IS NOT NULL",
+        )
+      ).filter((item) => orders.some((o) => o.id === item.order_id));
+      const costByStage = Object.entries(
+        stockCosts.reduce((sum, item) => {
+          sum[item.stage] =
+            (sum[item.stage] || 0) + item.quantity * item.unit_cost;
+          return sum;
+        }, {}),
+      ).map(([stage, value]) => ({ stage, value }));
       const active = occurrences.filter(
         (o) => !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(o.status),
       );
@@ -1413,10 +1824,14 @@ export function createApp(db, { storage = createFileStorage(), maxConcurrentUplo
         completed: orders.filter((o) => o.status === "CONCLUIDA").length,
         overdue: orders.filter(
           (o) =>
-            !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(o.status) && o.due_at < now(),
+            !["CONCLUIDA", "CANCELADA", "RECUSADA"].includes(o.status) &&
+            o.due_at < now(),
         ).length,
         cost: mats.reduce((s, m) => s + m.quantity * m.unit_cost, 0),
-        actual_cost: stockCosts.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0),
+        actual_cost: stockCosts.reduce(
+          (sum, item) => sum + item.quantity * item.unit_cost,
+          0,
+        ),
         cost_by_stage: costByStage,
         byNeighborhood: Object.entries(
           occurrences.reduce(

@@ -1,4 +1,4 @@
-import {initializeModules} from './user-permissions.js';
+import { initializeModules } from "./user-permissions.js";
 import { DatabaseSync } from "node:sqlite";
 import pg from "pg";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -31,7 +31,9 @@ export async function openDatabase() {
     };
   } else {
     const sqlite = new DatabaseSync(resolve(folder, "urban.sqlite"));
-    sqlite.function("lower", {deterministic:true}, value => value == null ? null : String(value).toLocaleLowerCase("pt-BR"));
+    sqlite.function("lower", { deterministic: true }, (value) =>
+      value == null ? null : String(value).toLocaleLowerCase("pt-BR"),
+    );
     sqlite.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
     db = {
       dialect: "sqlite",
@@ -88,27 +90,46 @@ export async function openDatabase() {
       throw error;
     }
   }
-  if (!(await db.get("SELECT version FROM schema_migrations WHERE version=4"))) {
+  if (
+    !(await db.get("SELECT version FROM schema_migrations WHERE version=4"))
+  ) {
     await db.exec("BEGIN");
     try {
-      await db.exec(`CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id), status TEXT NOT NULL, supplier TEXT NOT NULL DEFAULT '', invoice_number TEXT NOT NULL DEFAULT '', issue_date TEXT, total_value DOUBLE PRECISION NOT NULL DEFAULT 0, filename TEXT NOT NULL, original_name TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS invoice_items (id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL REFERENCES invoices(id), material_id TEXT REFERENCES catalogs(id), stage TEXT NOT NULL, description TEXT NOT NULL, purchased_quantity DOUBLE PRECISION NOT NULL CHECK(purchased_quantity > 0), used_quantity DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK(used_quantity >= 0), unit TEXT NOT NULL, unit_value DOUBLE PRECISION NOT NULL CHECK(unit_value >= 0), product_total DOUBLE PRECISION NOT NULL CHECK(product_total >= 0), position INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS inventory_movements (id TEXT PRIMARY KEY, material_id TEXT NOT NULL REFERENCES catalogs(id), order_id TEXT REFERENCES orders(id), invoice_id TEXT REFERENCES invoices(id), type TEXT NOT NULL CHECK(type IN ('entrada','saida')), quantity DOUBLE PRECISION NOT NULL CHECK(quantity > 0), unit_cost DOUBLE PRECISION NOT NULL CHECK(unit_cost >= 0), stage TEXT NOT NULL, notes TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_invoice_order ON invoices(order_id, status); CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id); CREATE INDEX IF NOT EXISTS idx_inventory_material ON inventory_movements(material_id, created_at);`);
-      await db.run("INSERT INTO schema_migrations(version, applied_at) VALUES(4, ?)", [new Date().toISOString()]);
+      await db.exec(
+        `CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id), status TEXT NOT NULL, supplier TEXT NOT NULL DEFAULT '', invoice_number TEXT NOT NULL DEFAULT '', issue_date TEXT, total_value DOUBLE PRECISION NOT NULL DEFAULT 0, filename TEXT NOT NULL, original_name TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS invoice_items (id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL REFERENCES invoices(id), material_id TEXT REFERENCES catalogs(id), stage TEXT NOT NULL, description TEXT NOT NULL, purchased_quantity DOUBLE PRECISION NOT NULL CHECK(purchased_quantity > 0), used_quantity DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK(used_quantity >= 0), unit TEXT NOT NULL, unit_value DOUBLE PRECISION NOT NULL CHECK(unit_value >= 0), product_total DOUBLE PRECISION NOT NULL CHECK(product_total >= 0), position INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS inventory_movements (id TEXT PRIMARY KEY, material_id TEXT NOT NULL REFERENCES catalogs(id), order_id TEXT REFERENCES orders(id), invoice_id TEXT REFERENCES invoices(id), type TEXT NOT NULL CHECK(type IN ('entrada','saida')), quantity DOUBLE PRECISION NOT NULL CHECK(quantity > 0), unit_cost DOUBLE PRECISION NOT NULL CHECK(unit_cost >= 0), stage TEXT NOT NULL, notes TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_invoice_order ON invoices(order_id, status); CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id); CREATE INDEX IF NOT EXISTS idx_inventory_material ON inventory_movements(material_id, created_at);`,
+      );
+      await db.run(
+        "INSERT INTO schema_migrations(version, applied_at) VALUES(4, ?)",
+        [new Date().toISOString()],
+      );
       await db.exec("COMMIT");
     } catch (error) {
       await db.exec("ROLLBACK");
       throw error;
     }
   }
-  if (!(await db.get("SELECT version FROM schema_migrations WHERE version=5"))) {
+  if (
+    !(await db.get("SELECT version FROM schema_migrations WHERE version=5"))
+  ) {
     await db.exec("BEGIN");
     try {
       for (const table of ["occurrences", "orders", "action_plans"])
-        await db.exec(`ALTER TABLE ${table} ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)`);
-      await db.run("INSERT INTO schema_migrations(version, applied_at) VALUES(5, ?)", [new Date().toISOString()]);
+        await db.exec(
+          `ALTER TABLE ${table} ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)`,
+        );
+      await db.run(
+        "INSERT INTO schema_migrations(version, applied_at) VALUES(5, ?)",
+        [new Date().toISOString()],
+      );
       await db.exec("COMMIT");
-    } catch (error) { await db.exec("ROLLBACK"); throw error; }
+    } catch (error) {
+      await db.exec("ROLLBACK");
+      throw error;
+    }
   }
-  if (!(await db.get("SELECT version FROM schema_migrations WHERE version=6"))) {
+  if (
+    !(await db.get("SELECT version FROM schema_migrations WHERE version=6"))
+  ) {
     await db.exec("BEGIN");
     try {
       await db.exec(`CREATE INDEX IF NOT EXISTS idx_occurrences_page ON occurrences(created_at,id);
@@ -125,37 +146,80 @@ export async function openDatabase() {
         CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_logs(event,created_at,id);
         CREATE INDEX IF NOT EXISTS idx_consumption_order ON consumption(order_id);
         CREATE INDEX IF NOT EXISTS idx_consumption_material ON consumption(material_id,created_at);`);
-      await db.run("INSERT INTO schema_migrations(version, applied_at) VALUES(6, ?)", [new Date().toISOString()]);
+      await db.run(
+        "INSERT INTO schema_migrations(version, applied_at) VALUES(6, ?)",
+        [new Date().toISOString()],
+      );
       await db.exec("COMMIT");
-    } catch (error) { await db.exec("ROLLBACK"); throw error; }
+    } catch (error) {
+      await db.exec("ROLLBACK");
+      throw error;
+    }
   }
-  if (!(await db.get("SELECT version FROM schema_migrations WHERE version=7"))) {
+  if (
+    !(await db.get("SELECT version FROM schema_migrations WHERE version=7"))
+  ) {
     await db.exec("BEGIN");
     try {
-      await db.exec("CREATE INDEX IF NOT EXISTS idx_inventory_page ON inventory_movements(created_at,id); CREATE INDEX IF NOT EXISTS idx_inventory_order ON inventory_movements(order_id,created_at,id); CREATE INDEX IF NOT EXISTS idx_inventory_invoice ON inventory_movements(invoice_id);");
-      await db.run("INSERT INTO schema_migrations(version, applied_at) VALUES(7, ?)", [new Date().toISOString()]);
+      await db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_inventory_page ON inventory_movements(created_at,id); CREATE INDEX IF NOT EXISTS idx_inventory_order ON inventory_movements(order_id,created_at,id); CREATE INDEX IF NOT EXISTS idx_inventory_invoice ON inventory_movements(invoice_id);",
+      );
+      await db.run(
+        "INSERT INTO schema_migrations(version, applied_at) VALUES(7, ?)",
+        [new Date().toISOString()],
+      );
       await db.exec("COMMIT");
-    } catch (error) {await db.exec("ROLLBACK");throw error;}
+    } catch (error) {
+      await db.exec("ROLLBACK");
+      throw error;
+    }
   }
-  if (!(await db.get('SELECT version FROM schema_migrations WHERE version=8'))) {
-    await db.exec('BEGIN');
+  if (
+    !(await db.get("SELECT version FROM schema_migrations WHERE version=8"))
+  ) {
+    await db.exec("BEGIN");
     try {
       await initializeModules(db);
-      await db.run('INSERT INTO schema_migrations(version,applied_at) VALUES(8,?)',[new Date().toISOString()]);
-      await db.exec('COMMIT');
-    } catch(error) {await db.exec('ROLLBACK');throw error;}
+      await db.run(
+        "INSERT INTO schema_migrations(version,applied_at) VALUES(8,?)",
+        [new Date().toISOString()],
+      );
+      await db.exec("COMMIT");
+    } catch (error) {
+      await db.exec("ROLLBACK");
+      throw error;
+    }
   }
-  await db.run('INSERT INTO schema_migrations(version,applied_at) VALUES(9,?) ON CONFLICT(version) DO NOTHING',[new Date().toISOString()]);
+  await db.run(
+    "INSERT INTO schema_migrations(version,applied_at) VALUES(9,?) ON CONFLICT(version) DO NOTHING",
+    [new Date().toISOString()],
+  );
   // Version 10: real capture time of field evidence (offline sync). created_at keeps the server receipt time.
-  if (!(await db.get('SELECT version FROM schema_migrations WHERE version=10'))) {
-    await db.exec('BEGIN');
+  if (
+    !(await db.get("SELECT version FROM schema_migrations WHERE version=10"))
+  ) {
+    await db.exec("BEGIN");
     try {
       // Idempotent on both dialects, so a re-run after a partial restore does not fail.
-      if (db.dialect === 'postgres') await db.exec('ALTER TABLE evidence ADD COLUMN IF NOT EXISTS captured_at TEXT');
-      else if (!(await db.get("SELECT name FROM pragma_table_info('evidence') WHERE name='captured_at'"))) await db.exec('ALTER TABLE evidence ADD COLUMN captured_at TEXT');
-      await db.run('INSERT INTO schema_migrations(version,applied_at) VALUES(10,?)',[new Date().toISOString()]);
-      await db.exec('COMMIT');
-    } catch(error) {await db.exec('ROLLBACK');throw error;}
+      if (db.dialect === "postgres")
+        await db.exec(
+          "ALTER TABLE evidence ADD COLUMN IF NOT EXISTS captured_at TEXT",
+        );
+      else if (
+        !(await db.get(
+          "SELECT name FROM pragma_table_info('evidence') WHERE name='captured_at'",
+        ))
+      )
+        await db.exec("ALTER TABLE evidence ADD COLUMN captured_at TEXT");
+      await db.run(
+        "INSERT INTO schema_migrations(version,applied_at) VALUES(10,?)",
+        [new Date().toISOString()],
+      );
+      await db.exec("COMMIT");
+    } catch (error) {
+      await db.exec("ROLLBACK");
+      throw error;
+    }
   }
   return db;
 }

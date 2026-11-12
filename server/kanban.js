@@ -116,11 +116,11 @@ export function kanbanService(db, fail) {
         const live = (await cards())
           .filter((c) => c.status === status)
           .map((c) => c.key);
-      const requested = new Set(keys);
-      if (
-        requested.size !== keys.length ||
+        const requested = new Set(keys);
+        if (
+          requested.size !== keys.length ||
           keys.length !== live.length ||
-        live.some((key) => !requested.has(key))
+          live.some((key) => !requested.has(key))
         )
           fail(
             409,

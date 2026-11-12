@@ -10,4 +10,6 @@ export interface MapTileEnvironment {
   VITE_MAP_MAX_ZOOM?: string;
 }
 export const OSM_TILE_URL: string;
-export function resolveMapTileProvider(env?: MapTileEnvironment): MapTileProvider;
+export function resolveMapTileProvider(
+  env?: MapTileEnvironment,
+): MapTileProvider;
